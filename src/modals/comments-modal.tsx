@@ -33,9 +33,6 @@ export function CommentsModal({ isOpen, onClose, comments, title }: CommentsModa
             <DialogTitle className="text-xl font-semibold text-gray-900 dark:text-white">
               Comments for {title}
             </DialogTitle>
-            <Button variant="ghost" size="icon" onClick={onClose} className="hover:bg-gray-100 dark:hover:bg-gray-700">
-              <X className="h-4 w-4 text-gray-600 dark:text-gray-300" />
-            </Button>
           </div>
         </DialogHeader>
         
@@ -65,9 +62,6 @@ export function CommentsModal({ isOpen, onClose, comments, title }: CommentsModa
         </div>
 
         <div className="flex justify-end pt-4 border-t border-gray-200 dark:border-gray-700">
-          <Button variant="outline" onClick={onClose}>
-            Close
-          </Button>
         </div>
       </DialogContent>
     </Dialog>

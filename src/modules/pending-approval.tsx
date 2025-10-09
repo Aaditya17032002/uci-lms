@@ -2,7 +2,8 @@
 
 "use client"
  
-import { useState } from "react"
+import { useState, useEffect } from "react"
+import axios from "axios"
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card"
 import { Button } from "../ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table"
@@ -14,112 +15,53 @@ import { LeaveReviewModal } from "../modals/leave-review-modal"
 import { BulkApprovalModal } from "../modals/bulk-approval-modal"
 import { Pagination } from "../common/pagination"
 import { CommentsModal } from "../modals/comments-modal"
+import { toast } from "../hooks/use-toast"
+
+// Interfaces for API data
+interface TimesheetEntry {
+  id: number
+  name: string
+  duration: string
+  time: string
+  submittedOn: string
+  comments: number
+  commentsData: CommentData[]
+  tsstatus: "pending" | "approved" | "rejected"
+}
+
+interface CommentData {
+  id: number
+  user: { name: string; initials: string }
+  action: string
+  timestamp: string
+  commentText: string
+}
+
+interface ApiTimesheetData {
+  timesheetID: number
+  userID: number
+  employeeName?: string
+  submittedBy?: string
+  startDate: string
+  endDate: string
+  status: number
+  hours?: number
+  minutes?: number
+  hoursTotal?: number
+  minutesTotal?: number
+  submittedOn: string
+  submissionComment?: string
+  approvedOn?: string
+  approvalComment?: string
+  approvedBy?: string
+  displayTitle: string
+  commentsCount: number
+  rejectedBy?: string
+  rejectionComment?: string
+  rejectedOn?: string
+}
  
-const timesheetData = [
-  {
-    id: 1,
-    name: "Rahul Sharma",
-    duration: "Dec 2nd Week (Dec 09 - Dec 13)",
-    time: "40h 0m",
-    submittedOn: "08-Apr-2025 00:29",
-    comments: 2,
-    commentsData: [
-      {
-        id: 1,
-        user: { name: "Rahul Sharma", initials: "RS" },
-        action: "submitted the Timesheet",
-        timestamp: "2 months ago (30-May-2025 17:28)",
-        commentText: "Initial submission.",
-      },
-      {
-        id: 2,
-        user: { name: "Max Smith", initials: "MS" },
-        action: "approved the Timesheet",
-        timestamp: "1 month ago (13-Jun-2025 18:41)",
-        commentText: "Approved as per policy.",
-      },
-    ],
-    tsstatus: "approved",
-  },
-  {
-    id: 2,
-    name: "Priya Patel",
-    duration: "Dec 1st Week (Dec 02 - Dec 06)",
-    time: "38h 30m",
-    submittedOn: "07-Apr-2025 15:45",
-    comments: 1,
-    commentsData: [
-      {
-        id: 3,
-        user: { name: "John Doe", initials: "JD" },
-        action: "submitted the Timesheet",
-        timestamp: "1 month ago (01-Jul-2025 10:00)",
-        commentText: "Submitted after minor corrections.",
-      },
-    ],
-    tsstatus: "approved",
-  },
-  {
-    id: 3,
-    name: "Amit Kumar",
-    duration: "Nov 4th Week (Nov 25 - Nov 29)",
-    time: "42h 15m",
-    submittedOn: "30-Nov-2024 10:20",
-    comments: 3,
-    commentsData: [
-      {
-        id: 4,
-        user: { name: "Jane Smith", initials: "JS" },
-        action: "submitted the Timesheet",
-        timestamp: "3 months ago (28-Apr-2025 14:00)",
-        commentText: "Final submission for the week.",
-      },
-      {
-        id: 5,
-        user: { name: "Alice Brown", initials: "AB" },
-        action: "requested changes",
-        timestamp: "2 months ago (05-May-2025 09:30)",
-        commentText: "Please clarify hours for Project X.",
-      },
-      {
-        id: 6,
-        user: { name: "Amit Kumar", initials: "AK" },
-        action: "updated the Timesheet",
-        timestamp: "2 months ago (06-May-2025 11:00)",
-        commentText: "Updated hours for Project X as requested.",
-      },
-    ],
-    tsstatus: "rejected",
-  },
-  {
-    id: 4,
-    name: "Suresh Gupta",
-    duration: "Dec 3rd Week (Dec 16 - Dec 20)",
-    time: "40h 0m",
-    submittedOn: "21-Dec-2024 09:15",
-    comments: 0,
-    commentsData: [],
-    tsstatus: "pending",
-  },
-  {
-    id: 5,
-    name: "Kavita Reddy",
-    duration: "Jan 1st Week (Jan 01 - Jan 05)",
-    time: "35h 30m",
-    submittedOn: "06-Jan-2025 16:30",
-    comments: 1,
-    commentsData: [
-      {
-        id: 7,
-        user: { name: "Bob Johnson", initials: "BJ" },
-        action: "submitted the Timesheet",
-        timestamp: "1 month ago (10-Jul-2025 17:00)",
-        commentText: "Submitted on time.",
-      },
-    ],
-    tsstatus: "pending",
-  },
-]
+// removed static mock timesheet data
  
 const leaveData = [
   {
@@ -195,23 +137,154 @@ export function PendingApprovalPage({ isDarkMode }: PendingApprovalPageProps) {
   const [leavePageSize, setLeavePageSize] = useState("10")
   const [leaveCurrentPage, setLeaveCurrentPage] = useState(1)
   const [isCommentsModalOpen, setIsCommentsModalOpen] = useState(false)
-  const [selectedComments, setSelectedComments] = useState([])
+  const [selectedComments, setSelectedComments] = useState<any[]>([])
   const [selectedCommentsTitle, setSelectedCommentsTitle] = useState("")
+
+  // API state management
+  const [apiTimesheetData, setApiTimesheetData] = useState<TimesheetEntry[]>([])
+  const [timesheetLoading, setTimesheetLoading] = useState(true)
+  const [timesheetError, setTimesheetError] = useState<string | null>(null)
+
+  // API functions
+  const fetchPendingTimesheets = async () => {
+    setTimesheetLoading(true)
+    setTimesheetError(null)
+    try {
+      const [pendingRes, approvedRes] = await Promise.all([
+        axios.get("https://localhost:7080/api/timesheet/GetPendingTimesheets", { withCredentials: true }),
+        axios.get("https://localhost:7080/api/timesheet/approved", { withCredentials: true })
+      ])
+
+      // Extract arrays
+      const pendingRaw = Array.isArray(pendingRes.data?.data) ? pendingRes.data.data : (Array.isArray(pendingRes.data) ? pendingRes.data : [])
+      const approvedRaw = Array.isArray(approvedRes.data?.data) ? approvedRes.data.data : (Array.isArray(approvedRes.data) ? approvedRes.data : [])
+
+      const formatSubmitted = (iso?: string): string => {
+        if (!iso) return ""
+        const d = new Date(iso)
+        if (isNaN(d.getTime())) return ""
+        const day = String(d.getDate()).padStart(2, '0')
+        const month = d.toLocaleString('en-GB', { month: 'short' })
+        const year = d.getFullYear()
+        const hours = String(d.getHours()).padStart(2, '0')
+        const minutes = String(d.getMinutes()).padStart(2, '0')
+        return `${day}-${month}-${year} ${hours}:${minutes}`
+      }
+
+      const normalize = (item: ApiTimesheetData, forcedStatus?: "pending" | "approved" | "rejected"): TimesheetEntry => {
+        let statusString: "pending" | "approved" | "rejected" = forcedStatus || "pending"
+        if (!forcedStatus) {
+          if (item.status === 2) statusString = "approved"
+          else if (item.status === 3) statusString = "rejected"
+        }
+
+        const displayName = item.employeeName || item.submittedBy || "Unknown User"
+        const hoursValue = typeof item.hours === 'number' ? item.hours : (item.hoursTotal ?? 0)
+        const minutesValue = typeof item.minutes === 'number' ? item.minutes : (item.minutesTotal ?? 0)
+
+        return {
+          id: item.timesheetID,
+          name: displayName,
+          duration: item.displayTitle || `${new Date(item.startDate).toLocaleDateString()} - ${new Date(item.endDate).toLocaleDateString()}`,
+          time: `${hoursValue}h ${minutesValue}m`,
+          submittedOn: formatSubmitted(item.submittedOn),
+          comments: item.commentsCount ?? 0,
+          commentsData: [],
+          tsstatus: statusString
+        }
+      }
+
+      const pending = pendingRaw.map((item: ApiTimesheetData) => normalize(item, "pending"))
+      const approved = approvedRaw.map((item: ApiTimesheetData) => normalize(item, "approved"))
+
+      const merged = [...pending, ...approved]
+      setApiTimesheetData(merged)
+    } catch (error: any) {
+      console.error("Error fetching pending timesheets:", error)
+      setTimesheetError("Failed to load pending timesheets")
+      // Fallback to empty list (mock data removed)
+      setApiTimesheetData([])
+    } finally {
+      setTimesheetLoading(false)
+    }
+  }
+
+  const fetchTimesheetComments = async (timesheetId: number) => {
+    try {
+      const response = await axios.get(`https://localhost:7080/api/timesheet/gettimesheetcomments?timesheetId=${timesheetId}`, { withCredentials: true })
+      return response.data ?? []
+    } catch (error: any) {
+      console.error("Error fetching timesheet comments:", error)
+      return []
+    }
+  }
+
+  // Fetch data on component mount
+  useEffect(() => {
+    fetchPendingTimesheets()
+  }, [])
  
   const handleTimesheetReview = (timesheet: any) => {
+    console.log("Selected timesheet for review:", timesheet)
     setSelectedTimesheet(timesheet)
     setIsTimesheetModalOpen(true)
   }
  
   const handleLeaveReview = (leave: any) => {
+    console.log("Selected leave data:", leave)
     setSelectedLeave(leave)
     setIsLeaveModalOpen(true)
   }
  
-  const handleViewComments = (timesheet: any) => {
-    setSelectedComments(timesheet.commentsData || [])
-    setSelectedCommentsTitle(`${timesheet.name}'s Timesheet`)
-    setIsCommentsModalOpen(true)
+  const handleViewComments = async (timesheet: any) => {
+    try {
+      const comments = await fetchTimesheetComments(timesheet.id)
+      
+      // Transform API comments (commentTypeText/commentByUser/commentDate/commentText) to CommentsModal format
+      const toRelative = (dateIso?: string) => {
+        if (!dateIso) return "Unknown time"
+        const date = new Date(dateIso)
+        const now = new Date()
+        const diffMs = Math.max(0, now.getTime() - date.getTime())
+        const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+        const months = Math.floor(diffDays / 30)
+        const label = months >= 1 ? `${months} month${months > 1 ? 's' : ''} ago` : `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`
+        const detailed = date.toLocaleString(undefined, { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+        return `${label} (${detailed})`
+      }
+
+      const transformedComments = Array.isArray(comments) ? comments.map((comment: any) => {
+        const displayName = comment.commentByUser || comment.userName || comment.commentedBy || "Unknown User"
+        const actionWord = (() => {
+          const t = (comment.commentTypeText || '').toLowerCase()
+          if (t.includes('approval')) return 'approved the Timesheet'
+          if (t.includes('rejection') || t.includes('reject')) return 'rejected the Timesheet'
+          if (t.includes('submission') || t.includes('submit')) return 'submitted the Timesheet'
+          return 'commented'
+        })()
+        const when = toRelative(comment.commentDate || comment.timestamp || comment.createdDate)
+        return {
+          id: comment.id || Math.random(),
+          user: {
+            name: displayName,
+            initials: (displayName || "UU").split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2),
+            avatarUrl: undefined
+          },
+          action: actionWord,
+          timestamp: when,
+          commentText: comment.commentText || comment.comment || ""
+        }
+      }) : []
+      
+      setSelectedComments(transformedComments)
+      setSelectedCommentsTitle(`${timesheet.name}'s Timesheet`)
+      setIsCommentsModalOpen(true)
+    } catch (error) {
+      console.error("Error loading comments:", error)
+      setSelectedComments([])
+      setSelectedCommentsTitle(`${timesheet.name}'s Timesheet`)
+      setIsCommentsModalOpen(true)
+    }
   }
  
   const handleTimesheetSelect = (timesheetId: number, checked: boolean) => {
@@ -232,27 +305,23 @@ export function PendingApprovalPage({ isDarkMode }: PendingApprovalPageProps) {
   }
  
   const handleBulkApproval = () => {
-    if (selectedTimesheets.length > 0) {
-      setIsBulkApprovalModalOpen(true)
-    }
+    // Disabled for now
   }
  
-  const handleBulkApprove = async (comment: string) => {
-    console.log("Bulk approving timesheets:", selectedTimesheets, "with comment:", comment)
-    // Here you would make API calls to approve the selected timesheets
+  const handleBulkApprove = async (_comment: string) => {
+    // Disabled: no API call
+    setSelectedTimesheets([])
+  }
+
+  const handleBulkReject = async (_comment: string) => {
+    // Disabled: no API call
     setSelectedTimesheets([])
   }
  
-  const handleBulkReject = async (comment: string) => {
-    console.log("Bulk rejecting timesheets:", selectedTimesheets, "with comment:", comment)
-    // Here you would make API calls to reject the selected timesheets
-    setSelectedTimesheets([])
-  }
- 
-  const timesheetTotalPages = Math.ceil(timesheetData.length / Number.parseInt(timesheetPageSize))
+  const timesheetTotalPages = Math.ceil(apiTimesheetData.length / Number.parseInt(timesheetPageSize))
   const timesheetStartIndex = (timesheetCurrentPage - 1) * Number.parseInt(timesheetPageSize)
   const timesheetEndIndex = timesheetStartIndex + Number.parseInt(timesheetPageSize)
-  const currentTimesheetData = timesheetData.slice(timesheetStartIndex, timesheetEndIndex)
+  const currentTimesheetData = apiTimesheetData.slice(timesheetStartIndex, timesheetEndIndex)
  
   const leaveTotalPages = Math.ceil(leaveData.length / Number.parseInt(leavePageSize))
   const leaveStartIndex = (leaveCurrentPage - 1) * Number.parseInt(leavePageSize)
@@ -293,8 +362,30 @@ export function PendingApprovalPage({ isDarkMode }: PendingApprovalPageProps) {
 
             {/* Timesheet Tab */}
             <TabsContent value="timesheet" className="mt-4 sm:mt-6">
+              {/* Loading State */}
+              {timesheetLoading && (
+                <div className="flex items-center justify-center py-8">
+                  <div className="text-gray-500 dark:text-gray-400">Loading timesheets...</div>
+                </div>
+              )}
+
+              {/* Error State */}
+              {timesheetError && !timesheetLoading && (
+                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-lg p-4 mx-2 sm:mx-6 mb-4">
+                  <div className="text-red-700 dark:text-red-300">{timesheetError}</div>
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    onClick={fetchPendingTimesheets}
+                    className="mt-2 text-red-600 border-red-300 hover:bg-red-50"
+                  >
+                    Retry
+                  </Button>
+                </div>
+              )}
+
               {/* Bulk Actions Bar */}
-              {selectedTimesheets.length > 0 && (
+              {false && selectedTimesheets.length > 0 && (
                 <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-3 sm:p-4 mx-2 sm:mx-6 mb-4">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <span className="text-sm font-medium text-blue-700 dark:text-blue-300">
@@ -309,24 +400,31 @@ export function PendingApprovalPage({ isDarkMode }: PendingApprovalPageProps) {
                       >
                         Clear Selection
                       </Button>
-                      <Button
-                        size="sm"
-                        onClick={handleBulkApproval}
-                        className="bg-blue-600 hover:bg-blue-700 text-white"
-                      >
-                        Bulk Actions
-                      </Button>
+                      <Button size="sm" disabled className="bg-gray-300 text-gray-600">Bulk Actions</Button>
                     </div>
                   </div>
                 </div>
               )}
 
-              <div className="overflow-x-auto">
-                <Table className="min-w-[750px] text-sm sm:text-base">
+              {/* Empty State for timesheets */}
+              {!timesheetLoading && !timesheetError && apiTimesheetData.length === 0 && (
+                <div className="mx-2 sm:mx-6 mb-4">
+                  <div className="border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 p-6 text-center">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">No Pending Approvals</h3>
+                    <p className="mt-1 text-gray-600 dark:text-gray-300">You don't have any timesheets pending for approval</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Table - only show when not loading and no error */}
+              {!timesheetLoading && !timesheetError && apiTimesheetData.length > 0 && (
+                <div className="overflow-x-auto">
+                  <Table className="min-w-[750px] text-sm sm:text-base">
                   <TableHeader>
                     <TableRow className="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
                       <TableHead className="w-12 font-semibold text-gray-700 dark:text-gray-200 p-2 sm:p-4">
                         <Checkbox
+                        disabled={true}
                           checked={isAllSelected}
                           onCheckedChange={handleSelectAll}
                           className="border-gray-300 dark:border-gray-600"
@@ -345,16 +443,17 @@ export function PendingApprovalPage({ isDarkMode }: PendingApprovalPageProps) {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {currentTimesheetData.map((timesheet) => (
+                    {currentTimesheetData.map((timesheet, index) => (
                       <TableRow
                         key={timesheet.id}
                         className="hover:bg-gray-50 dark:hover:bg-gray-700 border-b border-gray-100 dark:border-gray-600"
                       >
                         <TableCell className="p-2 sm:p-4">
                           <Checkbox
+                          disabled={true}
                             checked={selectedTimesheets.includes(timesheet.id)}
                             onCheckedChange={(checked) => handleTimesheetSelect(timesheet.id, checked as boolean)}
-                            disabled={timesheet.tsstatus !== "pending"}
+                            //disabled={timesheet.tsstatus !== "pending"}
                             className="border-gray-300 dark:border-gray-600"
                           />
                         </TableCell>
@@ -368,7 +467,7 @@ export function PendingApprovalPage({ isDarkMode }: PendingApprovalPageProps) {
                                   : "border-transparent text-black bg-transparent"
                             }`}
                           >
-                            {timesheet.id}
+                            {timesheetStartIndex + index + 1}
                           </div>
                         </TableCell>
                         <TableCell className="font-medium text-gray-900 dark:text-gray-100 p-2 sm:p-4">{timesheet.name}</TableCell>
@@ -398,14 +497,15 @@ export function PendingApprovalPage({ isDarkMode }: PendingApprovalPageProps) {
                       </TableRow>
                     ))}
                   </TableBody>
-                </Table>
-              </div>
+                  </Table>
+                </div>
+              )}
 
               <Pagination
                 currentPage={timesheetCurrentPage}
                 totalPages={timesheetTotalPages}
                 pageSize={timesheetPageSize}
-                totalItems={timesheetData.length}
+                totalItems={apiTimesheetData.length}
                 onPageChange={setTimesheetCurrentPage}
                 onPageSizeChange={setTimesheetPageSize}
               />
@@ -484,6 +584,17 @@ export function PendingApprovalPage({ isDarkMode }: PendingApprovalPageProps) {
           onClose={() => setIsTimesheetModalOpen(false)}
           timesheet={selectedTimesheet}
           isViewOnly={false}
+          onActionComplete={(result, id) => {
+            setApiTimesheetData(prev => {
+              if (result === "approved") {
+                return prev.map(ts => ts.id === id ? { ...ts, tsstatus: "approved" } : ts)
+              }
+              // rejected: remove from list
+              return prev.filter(ts => ts.id !== id)
+            })
+            // also clear selection if needed
+            setSelectedTimesheets(prev => prev.filter(tsId => tsId !== id))
+          }}
         />
 
         <LeaveReviewModal

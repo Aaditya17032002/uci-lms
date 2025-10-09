@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
+import axios from "axios"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../ui/dialog"
 import { Button } from "../ui/button"
 import { Badge } from "../ui/badge"
@@ -8,38 +9,247 @@ import { Textarea } from "../ui/textarea"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../ui/collapsible"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table"
 import { ChevronDown, ChevronRight, X, Check, Clock, CheckCircle, XCircle } from 'lucide-react'
+import { toast } from "../hooks/use-toast"
+
+// Interfaces for API data
+interface TimesheetDayEntry {
+  day: string
+  date: string
+  total: string
+  entries: TimesheetEntry[]
+}
+
+interface TimesheetEntry {
+  engagement: string
+  task: string
+  comment: string
+  hours: number
+  minutes: number
+}
+
+interface ApiTimesheetData {
+  data?: {
+    timesheetID: number
+    userID: number
+    startDate: string
+    endDate: string
+    status: number
+    hoursTotal: number
+    minutesTotal: number
+    timesheetLines?: {
+      day: string
+      date: string
+      engagement: string
+      task: string
+      comment: string
+      hours: number
+      minutes: number
+    }[]
+    displayTitle: string
+    approvedBy?: string
+    approvedOn?: string
+    approvalComment?: string
+    rejectedBy?: string
+    rejectedOn?: string
+    rejectionComment?: string
+  }
+}
+
+// Alternate shape: endpoint returns an array of line items directly
+interface ApiTimesheetLineItem {
+  lineID: number
+  timesheetID: number
+  engagementID: number
+  engagementName: string
+  taskID: number
+  taskName: string
+  hours: number
+  minutes: number
+  date: string
+  comment: string | null
+}
 
 interface TimesheetReviewModalProps {
   isOpen: boolean
   onClose: () => void
   timesheet: any
   isViewOnly?: boolean // New prop to control button visibility
+  onActionComplete?: (result: "approved" | "rejected", id: number) => void
 }
 
-export function TimesheetReviewModal({ isOpen, onClose, timesheet, isViewOnly = false }: TimesheetReviewModalProps) {
+export function TimesheetReviewModal({ isOpen, onClose, timesheet, isViewOnly = false, onActionComplete }: TimesheetReviewModalProps) {
   const [comment, setComment] = useState("")
   const [expandedDays, setExpandedDays] = useState<string[]>(["wednesday"])
+  
+  // API state management
+  const [timesheetData, setTimesheetData] = useState<ApiTimesheetData | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [mockDays, setMockDays] = useState<TimesheetDayEntry[]>([])
+  const [actionLoading, setActionLoading] = useState<boolean>(false)
+
+  // API function to fetch timesheet data
+  const fetchTimesheetData = async (timesheetId: number) => {
+    setLoading(true)
+    setError(null)
+    try {
+      const response = await axios.get(`https://localhost:7080/api/timesheet/${timesheetId}`, { withCredentials: true })
+      console.log("timesheet id", timesheetId)
+      setTimesheetData(response.data)
+
+      // Two supported shapes: wrapped object with data.timesheetLines OR a flat array of line items
+      const body = response.data
+      if (body?.data?.timesheetLines && Array.isArray(body.data.timesheetLines)) {
+        const transformedDays = transformApiDataToDays(body.data)
+        setMockDays(transformedDays)
+      } else if (Array.isArray(body) && body.length > 0) {
+        const transformedDays = transformFlatLinesToDays(body as ApiTimesheetLineItem[])
+        setMockDays(transformedDays)
+      } else {
+        // If API did not return any lines, avoid forcing mock fixed dates
+        setMockDays([])
+      }
+    } catch (error: any) {
+      console.error("Error fetching timesheet data:", error)
+      setError("Failed to load timesheet data")
+      // Keep prior mockDays; don't overwrite with fixed Dec week to avoid wrong display
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Transform API data (wrapped shape) to the expected format
+  const transformApiDataToDays = (data: any): TimesheetDayEntry[] => {
+    const daysMap = new Map<string, TimesheetDayEntry>()
+    
+    if (data.timesheetLines && Array.isArray(data.timesheetLines)) {
+      data.timesheetLines.forEach((entry: any) => {
+        const dayKey = entry.day.toLowerCase()
+        if (!daysMap.has(dayKey)) {
+          daysMap.set(dayKey, {
+            day: entry.day,
+            date: entry.date,
+            total: "0h 0m",
+            entries: []
+          })
+        }
+        
+        const dayEntry = daysMap.get(dayKey)!
+        dayEntry.entries.push({
+          engagement: entry.engagement,
+          task: entry.task,
+          comment: entry.comment,
+          hours: entry.hours,
+          minutes: entry.minutes
+        })
+        
+        // Calculate total hours for the day
+        const totalMinutes = dayEntry.entries.reduce((total, e) => total + (e.hours * 60) + e.minutes, 0)
+        const hours = Math.floor(totalMinutes / 60)
+        const minutes = totalMinutes % 60
+        dayEntry.total = `${hours}h ${minutes}m`
+      })
+    }
+    // Sort Monday->Sunday, include Sat/Sun only if they have entries
+    const order = ["monday","tuesday","wednesday","thursday","friday","saturday","sunday"]
+    const values = Array.from(daysMap.values())
+    const filtered = values.filter(d => {
+      const key = d.day.toLowerCase()
+      if (key === "saturday" || key === "sunday") {
+        return d.entries.length > 0
+      }
+      return true
+    })
+    filtered.sort((a,b) => order.indexOf(a.day.toLowerCase()) - order.indexOf(b.day.toLowerCase()))
+    return filtered
+  }
+
+  // Transform flat array of line items to grouped days
+  const transformFlatLinesToDays = (lines: ApiTimesheetLineItem[]): TimesheetDayEntry[] => {
+    const daysMap = new Map<string, TimesheetDayEntry>()
+
+    lines.forEach((entry) => {
+      const jsDate = new Date(entry.date)
+      const dayLabel = jsDate.toLocaleDateString(undefined, { weekday: 'long' })
+      const dateLabel = jsDate.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' })
+      const dayKey = dayLabel.toLowerCase()
+
+      if (!daysMap.has(dayKey)) {
+        daysMap.set(dayKey, {
+          day: dayLabel,
+          date: dateLabel,
+          total: '0h 0m',
+          entries: []
+        })
+      }
+
+      const dayEntry = daysMap.get(dayKey)!
+      dayEntry.entries.push({
+        engagement: entry.engagementName,
+        task: entry.taskName,
+        comment: entry.comment || '',
+        hours: entry.hours,
+        minutes: entry.minutes
+      })
+
+      const totalMinutes = dayEntry.entries.reduce((sum, e) => sum + e.hours * 60 + e.minutes, 0)
+      const hours = Math.floor(totalMinutes / 60)
+      const minutes = totalMinutes % 60
+      dayEntry.total = `${hours}h ${minutes}m`
+    })
+    // Sort Monday->Sunday, include Sat/Sun only if they have entries
+    const order = ["monday","tuesday","wednesday","thursday","friday","saturday","sunday"]
+    const values = Array.from(daysMap.values())
+    const filtered = values.filter(d => {
+      const key = d.day.toLowerCase()
+      if (key === "saturday" || key === "sunday") {
+        return d.entries.length > 0
+      }
+      return true
+    })
+    filtered.sort((a,b) => order.indexOf(a.day.toLowerCase()) - order.indexOf(b.day.toLowerCase()))
+    return filtered
+  }
+
+  // removed mock fallback data
+
+  // Fetch timesheet data when modal opens
+  useEffect(() => {
+    if (isOpen && timesheet?.id) {
+      fetchTimesheetData(timesheet.id)
+    }
+  }, [isOpen, timesheet?.id])
 
   console.log("timesheet.tsstatus [inside tsreviewmodal func]:", timesheet?.tsstatus);
+  
+  // Get status from timesheetData if available, otherwise use timesheet prop
+  const getStatusFromData = () => {
+    if (timesheetData?.data?.status !== undefined) {
+      return timesheetData.data.status
+    }
+    return timesheet?.tsstatus
+  }
+  
+  const currentStatus = getStatusFromData()
+  
+  // Debug logging
+  console.log("Modal timesheet prop:", timesheet)
+  console.log("Modal timesheetData:", timesheetData)
+  
   const TsApprovalStatus = {
-    status: timesheet?.tsstatus === "approved"
+    status: currentStatus === "approved" || currentStatus === 2
       ? "Approved"
-      : timesheet?.tsstatus === "rejected"
-
+      : currentStatus === "rejected" || currentStatus === 3
         ? "Rejected"
-
         : "Pending",
 
-    approvedBy: "John Doe (Manager)",
+    approvedBy: timesheetData?.data?.approvedBy || "John Doe (Manager)",
 
-    approvedOn: timesheet?.tsstatus === "rejected" ? "2025-07-20" : "2025-07-20",
+    approvedOn: timesheetData?.data?.approvedOn ? new Date(timesheetData.data.approvedOn).toLocaleDateString() : "2025-07-20",
 
-    comment: timesheet?.tsstatus === "rejected"
-
-      ? "Timesheet rejected by manager."
-
-      : "Timesheet approved by manager."
-
+    comment: currentStatus === "rejected" || currentStatus === 3
+      ? timesheetData?.data?.rejectionComment || "Timesheet rejected by manager."
+      : timesheetData?.data?.approvalComment || "Timesheet approved by manager."
   }
 
 
@@ -51,49 +261,6 @@ export function TimesheetReviewModal({ isOpen, onClose, timesheet, isViewOnly = 
     )
   }
 
-  const mockDays = [
-    {
-      day: "Monday",
-      date: "09 Dec 2024",
-      total: "8h 0m",
-      entries: [
-        { engagement: "E-commerce Platform", task: "Frontend Development", comment: "Worked on product listing page.", hours: 8, minutes: 0 }
-      ]
-    },
-    {
-      day: "Tuesday",
-      date: "10 Dec 2024",
-      total: "8h 0m",
-      entries: [
-        { engagement: "E-commerce Platform", task: "Backend Integration", comment: "Integrated payment gateway API.", hours: 8, minutes: 0 }
-      ]
-    },
-    {
-      day: "Wednesday",
-      date: "11 Dec 2024",
-      total: "8h 0m",
-      entries: [
-        { engagement: "Full Day Leave", task: "Casual Leave", comment: "Personal work.", hours: 8, minutes: 0 }
-      ]
-    },
-    {
-      day: "Thursday",
-      date: "12 Dec 2024",
-      total: "8h 0m",
-      entries: [
-        { engagement: "Mobile Banking App", task: "UI/UX Design Review", comment: "Reviewed new design mockups with client.", hours: 4, minutes: 0 },
-        { engagement: "Mobile Banking App", task: "Bug Fixing", comment: "Fixed login authentication bug.", hours: 4, minutes: 0 }
-      ]
-    },
-    {
-      day: "Friday",
-      date: "13 Dec 2024",
-      total: "8h 0m",
-      entries: [
-        { engagement: "HR Management System", task: "Database Schema Update", comment: "Added new fields for employee records.", hours: 8, minutes: 0 }
-      ]
-    },
-  ]
 
   const getTsApprovalBadge = (status: string) => {
     switch (status) {
@@ -106,31 +273,61 @@ export function TimesheetReviewModal({ isOpen, onClose, timesheet, isViewOnly = 
     }
   }
 
-  const handleApprove = () => {
-    console.log("Approved timesheet with comment:", comment)
-    onClose()
+  const handleApprove = async () => {
+    if (!timesheet?.id || actionLoading) return
+    setActionLoading(true)
+    try {
+      await axios.post(
+        `https://localhost:7080/api/timesheet/Approve`,
+        { timesheetID: timesheet.id, approvalComment: comment || "", modUser: 0 },
+        { withCredentials: true }
+      )
+      toast({ title: "Timesheet approved successfully", className: "border-green-500" })
+      if (timesheet?.id) onActionComplete?.("approved", timesheet.id)
+      onClose()
+    } catch (err) {
+      console.error("Approve failed", err)
+      setError("Failed to approve timesheet")
+    } finally {
+      setActionLoading(false)
+    }
   }
 
-  const handleReject = () => {
-    console.log("Rejected timesheet with comment:", comment)
-    onClose()
+  const handleReject = async () => {
+    if (!timesheet?.id || actionLoading) return
+    setActionLoading(true)
+    try {
+      await axios.post(
+        `https://localhost:7080/api/timesheet/Reject`,
+        { timesheetID: timesheet.id, rejectionComment: comment || "", modUser: 0 },
+        { withCredentials: true }
+      )
+      toast({ title: "Timesheet rejected successfully", className: "border-red-500" })
+      if (timesheet?.id) onActionComplete?.("rejected", timesheet.id)
+      onClose()
+    } catch (err) {
+      console.error("Reject failed", err)
+      setError("Failed to reject timesheet")
+    } finally {
+      setActionLoading(false)
+    }
   }
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent style={{ maxWidth: '1200px' }} className="w-full max-h-[90vh] flex flex-col bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg p-6">
-        <div className="overflow-x-auto overflow-y-hidden sm:overflow-x-visible lg:scrollbar-hidden">
-        <DialogHeader className="border-b border-gray-200 dark:border-gray-600 pb-4 px-6 pt-6 flex flex-row items-center justify-between">
-          <div className="space-y-2">
-            <DialogTitle className="text-2xl font-bold text-gray-900 dark:text-gray-100 text-left">
-              {timesheet?.name || "Rahul Sharma"}
+        <div className="overflow-x-auto sm:overflow-x-visible lg:scrollbar-hidden">
+        <DialogHeader className="border-b border-gray-200 dark:border-gray-600 pb-4 px-6 pt-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="space-y-2 min-w-0">
+            <DialogTitle className="text-2xl font-bold text-gray-900 dark:text-gray-100 text-left break-words">
+              {timesheet?.name || "Unknown User"}
             </DialogTitle>
-            <div className="flex items-center gap-3">
-              <Badge variant="outline" className="text-blue-600 border-blue-200 bg-blue-50 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-700 px-3 py-1 text-sm font-medium">
-                {timesheet?.duration || "Dec 2nd Week (Dec 09 - Dec 13)"}
+            <div className="flex flex-wrap items-center gap-3">
+              <Badge variant="outline" className="text-blue-600 border-blue-200 bg-blue-50 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-700 px-3 py-1 text-sm font-medium whitespace-normal">
+                {timesheet?.duration || timesheetData?.data?.displayTitle || "Unknown Duration"}
               </Badge>
-              <Badge className="bg-orange-100 text-orange-700 hover:bg-orange-100 dark:bg-orange-900/20 dark:text-orange-300 px-3 py-1 text-sm font-medium">
-                {timesheet?.total || "Total: 40h 0m"}
+              <Badge className="bg-orange-100 text-orange-700 hover:bg-orange-100 dark:bg-orange-900/20 dark:text-orange-300 px-3 py-1 text-sm font-medium whitespace-nowrap">
+                {timesheet?.time || (timesheetData?.data ? `Total: ${timesheetData.data.hoursTotal}h ${timesheetData.data.minutesTotal}m` : "Total: 0h 0m")}
               </Badge>
 
               {getTsApprovalBadge(TsApprovalStatus.status)}
@@ -141,7 +338,37 @@ export function TimesheetReviewModal({ isOpen, onClose, timesheet, isViewOnly = 
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
-          {mockDays.map((dayData) => (
+          {/* Loading State */}
+          {loading && (
+            <div className="flex items-center justify-center py-8">
+              <div className="text-gray-500 dark:text-gray-400">Loading timesheet data...</div>
+            </div>
+          )}
+
+          {/* Error State */}
+          {error && !loading && (
+            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-lg p-4">
+              <div className="text-red-700 dark:text-red-300">{error}</div>
+              <Button 
+                size="sm" 
+                variant="outline" 
+                onClick={() => timesheet?.id && fetchTimesheetData(timesheet.id)}
+                className="mt-2 text-red-600 border-red-300 hover:bg-red-50"
+              >
+                Retry
+              </Button>
+            </div>
+          )}
+
+          {/* Empty State */}
+          {!loading && !error && mockDays.length === 0 && (
+            <div className="border border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 p-6 text-center text-gray-700 dark:text-gray-200">
+              No data found for this timesheet.
+            </div>
+          )}
+
+          {/* Timesheet Data */}
+          {!loading && !error && mockDays.length > 0 && mockDays.map((dayData) => (
             <Collapsible
               key={dayData.day.toLowerCase()}
               open={expandedDays.includes(dayData.day.toLowerCase())}
@@ -234,7 +461,7 @@ export function TimesheetReviewModal({ isOpen, onClose, timesheet, isViewOnly = 
                   disabled={
                     !(
                       TsApprovalStatus.status === "Pending"
-                    )
+                    ) || actionLoading
                   }
                   className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-4 py-1.5 text-base font-medium rounded-md shadow-sm">
                   <X className="h-2 w-2" />
@@ -244,7 +471,7 @@ export function TimesheetReviewModal({ isOpen, onClose, timesheet, isViewOnly = 
                   disabled={
                     !(
                       TsApprovalStatus.status === "Pending"
-                    )
+                    ) || actionLoading
                   }
                   className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-1.5 text-base font-medium rounded-md shadow-sm">
                   <Check className="h-2 w-2" />

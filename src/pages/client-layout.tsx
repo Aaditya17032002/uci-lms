@@ -86,6 +86,7 @@ import { Footer } from "../layout/footer"
 import { useLocation } from "react-router-dom"
 
 import "./globals.css"
+import { Toaster } from "../ui/toaster"
 
 interface ClientLayoutProps {
 
@@ -155,6 +156,7 @@ export default function ClientLayout({ children }: ClientLayoutProps) {
         <div className="min-h-full flex flex-col w-full max-w-full">{children}</div>
       </main>
       <Footer isDarkMode={isDarkMode} />
+      <Toaster />
     </div>
 
   )

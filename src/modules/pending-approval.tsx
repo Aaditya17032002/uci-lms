@@ -1,7 +1,7 @@
 //== responsive ==
 
 "use client"
- 
+
 import { useState, useEffect } from "react"
 import axios from "axios"
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card"
@@ -60,71 +60,50 @@ interface ApiTimesheetData {
   rejectionComment?: string
   rejectedOn?: string
 }
- 
+
 // removed static mock timesheet data
- 
-const leaveData = [
-  {
-    id: 1,
-    requestBy: "Vikram Singh",
-    leaveType: "Leave Without Pay",
-    fromDate: "18-Jul-2025",
-    toDate: "18-Jul-2025",
-    totalDays: 1,
-    appliedOn: "15-Jul-2025",
-    reason: "Personal work",
-    status: "approved",
-  },
-  {
-    id: 2,
-    requestBy: "Anita Gupta",
-    leaveType: "Casual Leave",
-    fromDate: "17-Jul-2025",
-    toDate: "17-Jul-2025",
-    totalDays: 1,
-    appliedOn: "14-Jul-2025",
-    reason: "Family function",
-    status: "pending_hr_approval",
-  },
-  {
-    id: 3,
-    requestBy: "Suresh Patel",
-    leaveType: "Sick Leave",
-    fromDate: "21-Jul-2025",
-    toDate: "21-Jul-2025",
-    totalDays: 1,
-    appliedOn: "20-Jul-2025",
-    reason: "Medical checkup",
-    status: "pending",
-  },
-  {
-    id: 4,
-    requestBy: "Kavita Reddy",
-    leaveType: "Annual Leave",
-    fromDate: "22-Jul-2025",
-    toDate: "24-Jul-2025",
-    totalDays: 3,
-    appliedOn: "18-Jul-2025",
-    reason: "Vacation",
-    status: "rejected_by_hr",
-  },
-  {
-    id: 5,
-    requestBy: "Deepak Agarwal",
-    leaveType: "Casual Leave",
-    fromDate: "25-Jul-2025",
-    toDate: "25-Jul-2025",
-    totalDays: 1,
-    appliedOn: "22-Jul-2025",
-    reason: "Personal work",
-    status: "rejected",
-  },
-]
- 
+
+// Dynamic Leave Approvals (Manager)
+interface ApiLeaveItem {
+  status: number
+  modUser: number
+  requestID: number
+  userID: number
+  requestedBy: string
+  leaveTypeID: number
+  leaveName: string
+  requestDate: string
+  leaveStartDate: string
+  leaveEndDate: string
+  totalDays: number
+  reason: string
+  comments: string
+  createdBy: string
+  createdOn: string
+  modifiedBy: string
+  modifiedOn: string
+}
+
+interface LeaveEntry {
+  id: number
+  requestID: number
+  requestBy: string
+  leaveType: string
+  fromDate: string
+  toDate: string
+  totalDays: number
+  appliedOn: string
+  reason: string
+  comments?: string
+  rawStatus: number
+  statusLabel: "pending" | "approved" | "rejected" | "cancelled"
+  modUser?: number
+}
+
 interface PendingApprovalPageProps {
   isDarkMode?: boolean
 }
- 
+
 export function PendingApprovalPage({ isDarkMode }: PendingApprovalPageProps) {
   const [isTimesheetModalOpen, setIsTimesheetModalOpen] = useState(false)
   const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false)
@@ -144,6 +123,10 @@ export function PendingApprovalPage({ isDarkMode }: PendingApprovalPageProps) {
   const [apiTimesheetData, setApiTimesheetData] = useState<TimesheetEntry[]>([])
   const [timesheetLoading, setTimesheetLoading] = useState(true)
   const [timesheetError, setTimesheetError] = useState<string | null>(null)
+
+  const [apiLeaveData, setApiLeaveData] = useState<LeaveEntry[]>([])
+  const [leaveLoading, setLeaveLoading] = useState(true)
+  const [leaveError, setLeaveError] = useState<string | null>(null)
 
   // API functions
   const fetchPendingTimesheets = async () => {
@@ -209,6 +192,68 @@ export function PendingApprovalPage({ isDarkMode }: PendingApprovalPageProps) {
     }
   }
 
+  const fetchManagerApprovals = async () => {
+    setLeaveLoading(true)
+    setLeaveError(null)
+    try {
+      // API is POST; backend reads modUser from session, so empty body
+      const res = await axios.post("https://localhost:7080/api/Leave/manager-approvals", {}, { withCredentials: true })
+      const raw: ApiLeaveItem[] = Array.isArray(res.data?.data) ? res.data.data : (Array.isArray(res.data) ? res.data : [])
+      console.log("manager-approvals raw:", raw)
+
+      const formatDate = (iso?: string): string => {
+        if (!iso) return ""
+        const d = new Date(iso)
+        if (isNaN(d.getTime())) return ""
+        const day = String(d.getDate()).padStart(2, '0')
+        const month = d.toLocaleString('en-GB', { month: 'short' })
+        const year = d.getFullYear()
+        return `${day}-${month}-${year}`
+      }
+
+      // Status mapping per backend:
+      // 5 = Pending Manager Approval
+      // 7 = Rejected by Manager
+      // 9 = Cancelled
+      const isPendingStatus = (code: number) => code === 5
+      const isApprovedStatus = (code: number) => code === 6
+      const isRejectedStatus = (code: number) => code === 7
+      const isCancelledStatus = (code: number) => code === 9
+
+      const normalized: LeaveEntry[] = raw.map((item) => {
+        const statusLabel: "pending" | "approved" | "rejected" | "cancelled" =
+          isPendingStatus(item.status) ? "pending"
+            : isApprovedStatus(item.status) ? "approved"
+              : isRejectedStatus(item.status) ? "rejected"
+                : isCancelledStatus(item.status) ? "cancelled"
+                  : "pending"
+        return {
+          id: item.requestID,
+          requestID: item.requestID,
+          requestBy: item.requestedBy,
+          leaveType: item.leaveName,
+          fromDate: formatDate(item.leaveStartDate),
+          toDate: formatDate(item.leaveEndDate),
+          totalDays: item.totalDays,
+          appliedOn: formatDate(item.requestDate),
+          reason: item.reason,
+          comments: item.comments,
+          rawStatus: item.status,
+          statusLabel,
+          modUser: item.modUser,
+        }
+      })
+
+      setApiLeaveData(normalized)
+    } catch (error: any) {
+      console.error("Error fetching manager approvals:", error)
+      setLeaveError("Failed to load leave approvals")
+      setApiLeaveData([])
+    } finally {
+      setLeaveLoading(false)
+    }
+  }
+
   const fetchTimesheetComments = async (timesheetId: number) => {
     try {
       const response = await axios.get(`https://localhost:7080/api/timesheet/gettimesheetcomments?timesheetId=${timesheetId}`, { withCredentials: true })
@@ -222,24 +267,33 @@ export function PendingApprovalPage({ isDarkMode }: PendingApprovalPageProps) {
   // Fetch data on component mount
   useEffect(() => {
     fetchPendingTimesheets()
+    fetchManagerApprovals()
   }, [])
- 
+
   const handleTimesheetReview = (timesheet: any) => {
     console.log("Selected timesheet for review:", timesheet)
     setSelectedTimesheet(timesheet)
     setIsTimesheetModalOpen(true)
   }
- 
+
   const handleLeaveReview = (leave: any) => {
     console.log("Selected leave data:", leave)
     setSelectedLeave(leave)
     setIsLeaveModalOpen(true)
   }
- 
+
+  const notify = (title: string, description?: string) => {
+    try {
+      toast({ title, description })
+    } catch (_) {
+      // noop if toast not available in this context
+    }
+  }
+
   const handleViewComments = async (timesheet: any) => {
     try {
       const comments = await fetchTimesheetComments(timesheet.id)
-      
+
       // Transform API comments (commentTypeText/commentByUser/commentDate/commentText) to CommentsModal format
       const toRelative = (dateIso?: string) => {
         if (!dateIso) return "Unknown time"
@@ -275,7 +329,7 @@ export function PendingApprovalPage({ isDarkMode }: PendingApprovalPageProps) {
           commentText: comment.commentText || comment.comment || ""
         }
       }) : []
-      
+
       setSelectedComments(transformedComments)
       setSelectedCommentsTitle(`${timesheet.name}'s Timesheet`)
       setIsCommentsModalOpen(true)
@@ -286,7 +340,7 @@ export function PendingApprovalPage({ isDarkMode }: PendingApprovalPageProps) {
       setIsCommentsModalOpen(true)
     }
   }
- 
+
   const handleTimesheetSelect = (timesheetId: number, checked: boolean) => {
     if (checked) {
       setSelectedTimesheets((prev) => [...prev, timesheetId])
@@ -294,7 +348,7 @@ export function PendingApprovalPage({ isDarkMode }: PendingApprovalPageProps) {
       setSelectedTimesheets((prev) => prev.filter((id) => id !== timesheetId))
     }
   }
- 
+
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
       const pendingTimesheets = currentTimesheetData.filter((ts) => ts.tsstatus === "pending").map((ts) => ts.id)
@@ -303,11 +357,11 @@ export function PendingApprovalPage({ isDarkMode }: PendingApprovalPageProps) {
       setSelectedTimesheets([])
     }
   }
- 
+
   const handleBulkApproval = () => {
     // Disabled for now
   }
- 
+
   const handleBulkApprove = async (_comment: string) => {
     // Disabled: no API call
     setSelectedTimesheets([])
@@ -317,23 +371,23 @@ export function PendingApprovalPage({ isDarkMode }: PendingApprovalPageProps) {
     // Disabled: no API call
     setSelectedTimesheets([])
   }
- 
+
   const timesheetTotalPages = Math.ceil(apiTimesheetData.length / Number.parseInt(timesheetPageSize))
   const timesheetStartIndex = (timesheetCurrentPage - 1) * Number.parseInt(timesheetPageSize)
   const timesheetEndIndex = timesheetStartIndex + Number.parseInt(timesheetPageSize)
   const currentTimesheetData = apiTimesheetData.slice(timesheetStartIndex, timesheetEndIndex)
- 
-  const leaveTotalPages = Math.ceil(leaveData.length / Number.parseInt(leavePageSize))
+
+  const leaveTotalPages = Math.ceil(apiLeaveData.length / Number.parseInt(leavePageSize))
   const leaveStartIndex = (leaveCurrentPage - 1) * Number.parseInt(leavePageSize)
   const leaveEndIndex = leaveStartIndex + Number.parseInt(leavePageSize)
-  const currentLeaveData = leaveData.slice(leaveStartIndex, leaveEndIndex)
- 
+  const currentLeaveData = apiLeaveData.slice(leaveStartIndex, leaveEndIndex)
+
   const pendingTimesheets = currentTimesheetData.filter((ts) => ts.tsstatus === "pending")
   const selectedTimesheetData = currentTimesheetData.filter((ts) => selectedTimesheets.includes(ts.id))
   const isAllSelected =
     pendingTimesheets.length > 0 && pendingTimesheets.every((ts) => selectedTimesheets.includes(ts.id))
   const isIndeterminate = selectedTimesheets.length > 0 && !isAllSelected
- 
+
   return (
     <div className={`p-4 sm:p-6 space-y-6 ${isDarkMode ? "text-white bg-gray-900" : "text-gray-900 bg-gray-50"}`}>
       <Card className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-sm">
@@ -373,9 +427,9 @@ export function PendingApprovalPage({ isDarkMode }: PendingApprovalPageProps) {
               {timesheetError && !timesheetLoading && (
                 <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-lg p-4 mx-2 sm:mx-6 mb-4">
                   <div className="text-red-700 dark:text-red-300">{timesheetError}</div>
-                  <Button 
-                    size="sm" 
-                    variant="outline" 
+                  <Button
+                    size="sm"
+                    variant="outline"
                     onClick={fetchPendingTimesheets}
                     className="mt-2 text-red-600 border-red-300 hover:bg-red-50"
                   >
@@ -420,83 +474,82 @@ export function PendingApprovalPage({ isDarkMode }: PendingApprovalPageProps) {
               {!timesheetLoading && !timesheetError && apiTimesheetData.length > 0 && (
                 <div className="overflow-x-auto">
                   <Table className="min-w-[750px] text-sm sm:text-base">
-                  <TableHeader>
-                    <TableRow className="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
-                      <TableHead className="w-12 font-semibold text-gray-700 dark:text-gray-200 p-2 sm:p-4">
-                        <Checkbox
-                        disabled={true}
-                          checked={isAllSelected}
-                          onCheckedChange={handleSelectAll}
-                          className="border-gray-300 dark:border-gray-600"
-                          ref={(el) => {
-                            if (el) (el as unknown as HTMLInputElement).indeterminate = isIndeterminate
-                          }}
-                        />
-                      </TableHead>
-                      <TableHead className="w-12 font-semibold text-gray-700 dark:text-gray-200 p-2 sm:p-4">Sr.No.</TableHead>
-                      <TableHead className="font-semibold text-gray-700 dark:text-gray-200 p-2 sm:p-4">Name</TableHead>
-                      <TableHead className="font-semibold text-gray-700 dark:text-gray-200 p-2 sm:p-4">Duration</TableHead>
-                      <TableHead className="font-semibold text-gray-700 dark:text-gray-200 p-2 sm:p-4">Time</TableHead>
-                      <TableHead className="font-semibold text-gray-700 dark:text-gray-200 p-2 sm:p-4">Submitted On</TableHead>
-                      <TableHead className="font-semibold text-gray-700 dark:text-gray-200 p-2 sm:p-4">Comments</TableHead>
-                      <TableHead className="w-32 font-semibold text-gray-700 dark:text-gray-200 p-2 sm:p-4">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {currentTimesheetData.map((timesheet, index) => (
-                      <TableRow
-                        key={timesheet.id}
-                        className="hover:bg-gray-50 dark:hover:bg-gray-700 border-b border-gray-100 dark:border-gray-600"
-                      >
-                        <TableCell className="p-2 sm:p-4">
+                    <TableHeader>
+                      <TableRow className="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
+                        <TableHead className="w-12 font-semibold text-gray-700 dark:text-gray-200 p-2 sm:p-4">
                           <Checkbox
-                          disabled={true}
-                            checked={selectedTimesheets.includes(timesheet.id)}
-                            onCheckedChange={(checked) => handleTimesheetSelect(timesheet.id, checked as boolean)}
-                            //disabled={timesheet.tsstatus !== "pending"}
+                            disabled={true}
+                            checked={isAllSelected}
+                            onCheckedChange={handleSelectAll}
                             className="border-gray-300 dark:border-gray-600"
+                            ref={(el) => {
+                              if (el) (el as unknown as HTMLInputElement).indeterminate = isIndeterminate
+                            }}
                           />
-                        </TableCell>
-                        <TableCell className="p-2 sm:p-4 text-center">
-                          <div
-                            className={`mx-auto w-6 sm:w-8 h-6 sm:h-8 rounded-full flex items-center justify-center font-bold border-2 ${
-                              timesheet.tsstatus === "approved"
+                        </TableHead>
+                        <TableHead className="w-12 font-semibold text-gray-700 dark:text-gray-200 p-2 sm:p-4">Sr.No.</TableHead>
+                        <TableHead className="font-semibold text-gray-700 dark:text-gray-200 p-2 sm:p-4">Name</TableHead>
+                        <TableHead className="font-semibold text-gray-700 dark:text-gray-200 p-2 sm:p-4">Duration</TableHead>
+                        <TableHead className="font-semibold text-gray-700 dark:text-gray-200 p-2 sm:p-4">Time</TableHead>
+                        <TableHead className="font-semibold text-gray-700 dark:text-gray-200 p-2 sm:p-4">Submitted On</TableHead>
+                        <TableHead className="font-semibold text-gray-700 dark:text-gray-200 p-2 sm:p-4">Comments</TableHead>
+                        <TableHead className="w-32 font-semibold text-gray-700 dark:text-gray-200 p-2 sm:p-4">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {currentTimesheetData.map((timesheet, index) => (
+                        <TableRow
+                          key={timesheet.id}
+                          className="hover:bg-gray-50 dark:hover:bg-gray-700 border-b border-gray-100 dark:border-gray-600"
+                        >
+                          <TableCell className="p-2 sm:p-4">
+                            <Checkbox
+                              disabled={true}
+                              checked={selectedTimesheets.includes(timesheet.id)}
+                              onCheckedChange={(checked) => handleTimesheetSelect(timesheet.id, checked as boolean)}
+                              //disabled={timesheet.tsstatus !== "pending"}
+                              className="border-gray-300 dark:border-gray-600"
+                            />
+                          </TableCell>
+                          <TableCell className="p-2 sm:p-4 text-center">
+                            <div
+                              className={`mx-auto w-6 sm:w-8 h-6 sm:h-8 rounded-full flex items-center justify-center font-bold border-2 ${timesheet.tsstatus === "approved"
                                 ? "border-green-300 bg-green-100 text-black"
                                 : timesheet.tsstatus === "rejected"
                                   ? "border-red-300 bg-red-100 text-black"
                                   : "border-transparent text-black bg-transparent"
-                            }`}
-                          >
-                            {timesheetStartIndex + index + 1}
-                          </div>
-                        </TableCell>
-                        <TableCell className="font-medium text-gray-900 dark:text-gray-100 p-2 sm:p-4">{timesheet.name}</TableCell>
-                        <TableCell className="text-gray-700 dark:text-gray-200 p-2 sm:p-4">{timesheet.duration}</TableCell>
-                        <TableCell className="text-gray-700 dark:text-gray-200 p-2 sm:p-4">{timesheet.time}</TableCell>
-                        <TableCell className="text-gray-700 dark:text-gray-200 p-2 sm:p-4">{timesheet.submittedOn}</TableCell>
-                        <TableCell className="p-2 sm:p-4">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleViewComments(timesheet)}
-                            className="h-8 px-2 sm:px-3 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600"
-                          >
-                            {timesheet.comments} Comments
-                          </Button>
-                        </TableCell>
-                        <TableCell className="p-2 sm:p-4">
-                          <Button
-                            size="sm"
-                            onClick={() => handleTimesheetReview(timesheet)}
-                            className="bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1 sm:gap-2 font-medium"
-                          >
-                            <Eye className="h-3 w-3 sm:h-4 sm:w-4" />
-                            Review
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
+                                }`}
+                            >
+                              {timesheetStartIndex + index + 1}
+                            </div>
+                          </TableCell>
+                          <TableCell className="font-medium text-gray-900 dark:text-gray-100 p-2 sm:p-4">{timesheet.name}</TableCell>
+                          <TableCell className="text-gray-700 dark:text-gray-200 p-2 sm:p-4">{timesheet.duration}</TableCell>
+                          <TableCell className="text-gray-700 dark:text-gray-200 p-2 sm:p-4">{timesheet.time}</TableCell>
+                          <TableCell className="text-gray-700 dark:text-gray-200 p-2 sm:p-4">{timesheet.submittedOn}</TableCell>
+                          <TableCell className="p-2 sm:p-4">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleViewComments(timesheet)}
+                              className="h-8 px-2 sm:px-3 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600"
+                            >
+                              {timesheet.comments} Comments
+                            </Button>
+                          </TableCell>
+                          <TableCell className="p-2 sm:p-4">
+                            <Button
+                              size="sm"
+                              onClick={() => handleTimesheetReview(timesheet)}
+                              className="bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1 sm:gap-2 font-medium"
+                            >
+                              <Eye className="h-3 w-3 sm:h-4 sm:w-4" />
+                              Review
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
                   </Table>
                 </div>
               )}
@@ -513,64 +566,99 @@ export function PendingApprovalPage({ isDarkMode }: PendingApprovalPageProps) {
 
             {/* Leave Tab */}
             <TabsContent value="leave" className="mt-4 sm:mt-6">
-              <div className="overflow-x-auto">
-                <Table className="min-w-[700px] text-sm sm:text-base">
-                  <TableHeader>
-                    <TableRow className="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
-                      <TableHead className="w-12 font-semibold text-gray-700 dark:text-gray-200 p-2 sm:p-4">Sr.No.</TableHead>
-                      <TableHead className="font-semibold text-gray-700 dark:text-gray-200 p-2 sm:p-4">Request By</TableHead>
-                      <TableHead className="font-semibold text-gray-700 dark:text-gray-200 p-2 sm:p-4">Type of Leave</TableHead>
-                      <TableHead className="font-semibold text-gray-700 dark:text-gray-200 p-2 sm:p-4">From Date</TableHead>
-                      <TableHead className="font-semibold text-gray-700 dark:text-gray-200 p-2 sm:p-4">To Date</TableHead>
-                      <TableHead className="font-semibold text-gray-700 dark:text-gray-200 p-2 sm:p-4">Total Days</TableHead>
-                      <TableHead className="w-32 font-semibold text-gray-700 dark:text-gray-200 p-2 sm:p-4">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {currentLeaveData.map((leave) => (
-                      <TableRow
-                        key={leave.id}
-                        className="hover:bg-gray-50 dark:hover:bg-gray-700 border-b border-gray-100 dark:border-gray-600"
-                      >
-                        <TableCell className="p-2 sm:p-4 text-center">
-                          <div
-                            className={`mx-auto w-6 sm:w-8 h-6 sm:h-8 rounded-full flex items-center justify-center font-bold border-2 ${
-                              leave.status === "approved" || leave.status === "pending_hr_approval"
-                                ? "border-green-300 bg-green-100 text-black"
-                                : leave.status === "rejected" || leave.status === "rejected_by_hr"
-                                  ? "border-red-300 bg-red-100 text-black"
-                                  : "border-transparent text-black bg-transparent"
-                            }`}
-                          >
-                            {leave.id}
-                          </div>
-                        </TableCell>
-                        <TableCell className="font-medium text-gray-900 dark:text-gray-100 p-2 sm:p-4">{leave.requestBy}</TableCell>
-                        <TableCell className="text-gray-700 dark:text-gray-200 p-2 sm:p-4">{leave.leaveType}</TableCell>
-                        <TableCell className="text-gray-700 dark:text-gray-200 p-2 sm:p-4">{leave.fromDate}</TableCell>
-                        <TableCell className="text-gray-700 dark:text-gray-200 p-2 sm:p-4">{leave.toDate}</TableCell>
-                        <TableCell className="text-gray-700 dark:text-gray-200 p-2 sm:p-4">{leave.totalDays}</TableCell>
-                        <TableCell className="p-2 sm:p-4">
-                          <Button
-                            size="sm"
-                            onClick={() => handleLeaveReview(leave)}
-                            className="bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1 sm:gap-2 font-medium"
-                          >
-                            <Eye className="h-3 w-3 sm:h-4 sm:w-4" />
-                            Review
-                          </Button>
-                        </TableCell>
+              {/* Loading State */}
+              {leaveLoading && (
+                <div className="flex items-center justify-center py-8">
+                  <div className="text-gray-500 dark:text-gray-400">Loading leave approvals...</div>
+                </div>
+              )}
+
+              {/* Error State */}
+              {leaveError && !leaveLoading && (
+                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-lg p-4 mx-2 sm:mx-6 mb-4">
+                  <div className="text-red-700 dark:text-red-300">{leaveError}</div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={fetchManagerApprovals}
+                    className="mt-2 text-red-600 border-red-300 hover:bg-red-50"
+                  >
+                    Retry
+                  </Button>
+                </div>
+              )}
+
+              {/* Empty State */}
+              {!leaveLoading && !leaveError && apiLeaveData.length === 0 && (
+                <div className="mx-2 sm:mx-6 mb-4">
+                  <div className="border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 p-6 text-center">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">No Leave Approvals</h3>
+                    <p className="mt-1 text-gray-600 dark:text-gray-300">You don't have any leave requests to review</p>
+                  </div>
+                </div>
+              )}
+
+              {!leaveLoading && !leaveError && apiLeaveData.length > 0 && (
+                <div className="overflow-x-auto">
+                  <Table className="min-w-[700px] text-sm sm:text-base">
+                    <TableHeader>
+                      <TableRow className="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
+                        <TableHead className="w-12 font-semibold text-gray-700 dark:text-gray-200 p-2 sm:p-4">Sr.No.</TableHead>
+                        <TableHead className="font-semibold text-gray-700 dark:text-gray-200 p-2 sm:p-4">Request By</TableHead>
+                        <TableHead className="font-semibold text-gray-700 dark:text-gray-200 p-2 sm:p-4">Type of Leave</TableHead>
+                        <TableHead className="font-semibold text-gray-700 dark:text-gray-200 p-2 sm:p-4">From Date</TableHead>
+                        <TableHead className="font-semibold text-gray-700 dark:text-gray-200 p-2 sm:p-4">To Date</TableHead>
+                        <TableHead className="font-semibold text-gray-700 dark:text-gray-200 p-2 sm:p-4">Total Days</TableHead>
+                        <TableHead className="w-32 font-semibold text-gray-700 dark:text-gray-200 p-2 sm:p-4">Actions</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+                    </TableHeader>
+                    <TableBody>
+                      {currentLeaveData.map((leave, index) => (
+                        <TableRow
+                          key={leave.id}
+                          className={`hover:bg-gray-50 dark:hover:bg-gray-700 border-b border-gray-100 dark:border-gray-600 ${leave.statusLabel === "cancelled" ? "text-gray-400 dark:text-gray-500" : ""}`}
+                        >
+                          <TableCell className="p-2 sm:p-4 text-center">
+                            <div
+                              className={`mx-auto w-6 sm:w-8 h-6 sm:h-8 rounded-full flex items-center justify-center font-bold border-2 ${leave.statusLabel === "approved"
+                                ? "border-green-300 bg-green-100 text-black"
+                                : leave.statusLabel === "rejected"
+                                  ? "border-red-300 bg-red-100 text-black"
+                                  : leave.statusLabel === "cancelled"
+                                    ? "border-yellow-300 bg-yellow-100 text-black"
+                                    : "border-transparent text-black bg-transparent"
+                                }`}
+                            >
+                              {leaveStartIndex + index + 1}
+                            </div>
+                          </TableCell>
+                          <TableCell className="font-medium text-gray-900 dark:text-gray-100 p-2 sm:p-4">{leave.requestBy}</TableCell>
+                          <TableCell className="text-gray-700 dark:text-gray-200 p-2 sm:p-4">{leave.leaveType}</TableCell>
+                          <TableCell className="text-gray-700 dark:text-gray-200 p-2 sm:p-4">{leave.fromDate}</TableCell>
+                          <TableCell className="text-gray-700 dark:text-gray-200 p-2 sm:p-4">{leave.toDate}</TableCell>
+                          <TableCell className="text-gray-700 dark:text-gray-200 p-2 sm:p-4">{leave.totalDays}</TableCell>
+                          <TableCell className="p-2 sm:p-4">
+                            <Button
+                              size="sm"
+                              onClick={() => handleLeaveReview(leave)}
+                              className="bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1 sm:gap-2 font-medium"
+                            >
+                              <Eye className="h-3 w-3 sm:h-4 sm:w-4" />
+                              Review
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
 
               <Pagination
                 currentPage={leaveCurrentPage}
                 totalPages={leaveTotalPages}
                 pageSize={leavePageSize}
-                totalItems={leaveData.length}
+                totalItems={apiLeaveData.length}
                 onPageChange={setLeaveCurrentPage}
                 onPageSizeChange={setLeavePageSize}
               />
@@ -601,6 +689,16 @@ export function PendingApprovalPage({ isDarkMode }: PendingApprovalPageProps) {
           isOpen={isLeaveModalOpen}
           onClose={() => setIsLeaveModalOpen(false)}
           leaveRequest={selectedLeave}
+          onActionComplete={(result, requestID) => {
+            setApiLeaveData(prev => {
+              if (result === "approved") {
+                return prev.map(l => l.requestID === requestID ? { ...l, statusLabel: "approved" } : l)
+              }
+              // rejected: remove from list
+              return prev.filter(l => l.requestID !== requestID)
+            })
+            // Toast notifications are now handled in the modal itself
+          }}
         />
 
         <BulkApprovalModal

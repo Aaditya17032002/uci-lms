@@ -1,10 +1,8 @@
-// == responsive ==
-
 
 "use client"
 
 import type React from "react"
-
+import axios from "axios"
 import { useState, useEffect } from "react"
 import { Button } from "../../ui/button"
 import { Input } from "../../ui/input"
@@ -18,129 +16,113 @@ import { format, isWeekend, eachDayOfInterval } from "date-fns"
 import { cn } from "../../lib/utils"
 import { useToast } from "../../hooks/use-toast"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../../ui/dialog"
+import { Loader2 } from "lucide-react"
+
+export interface LeaveRecordWithDetails {
+  requestID: number
+  leaveType: string
+  startDate: Date
+  endDate: Date
+  reason: string
+  leaveDayDetails: LeaveDayDetail[]
+}
+
+interface AddLeaveFormProps {
+  leaveToEdit?: LeaveRecordWithDetails
+  defaultValues?: {
+    requestID?: number
+    leaveType: string
+    startDate: Date
+    endDate: Date
+    reason: string
+    leaveDayDetails: LeaveDayDetail[]
+  }
+  onSubmitSuccess?: () => void
+}
 
 interface LeaveDayDetail {
   date: string // YYYY-MM-DD format
   type: "Full Day" | "First-Half" | "Second-Half"
 }
+interface LeaveType {
+  leaveTypeId: number
+  leaveName: string
+  remainingLeaves: number | null
+}
 
-export function AddLeaveForm() {
-  const [leaveType, setLeaveType] = useState("")
-  const [startDate, setStartDate] = useState<Date | undefined>(undefined)
-  const [endDate, setEndDate] = useState<Date | undefined>(undefined)
-  const [reason, setReason] = useState("")
-  const [leaveDayDetails, setLeaveDayDetails] = useState<LeaveDayDetail[]>([])
+export function AddLeaveForm({
+  defaultValues,
+  leaveToEdit,
+  onSubmitSuccess,
+}: AddLeaveFormProps) {
+  const [leaveType, setLeaveType] = useState(defaultValues?.leaveType || "")
+  const [startDate, setStartDate] = useState<Date | undefined>(defaultValues?.startDate)
+  const [endDate, setEndDate] = useState<Date | undefined>(defaultValues?.endDate)
+  const [reason, setReason] = useState(defaultValues?.reason || "")
+  const [leaveDayDetails, setLeaveDayDetails] = useState<LeaveDayDetail[]>(defaultValues?.leaveDayDetails || [])
   const [successOpen, setSuccessOpen] = useState(false)
-
-  // Multiple attachments, up to 5
-  const [attachments, setAttachments] = useState<File[]>([])
+  const [loading, setLoading] = useState(false)
+  const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([])
   const { toast } = useToast()
+  const [popupMessage, setPopupMessage] = useState("")
+  const [isErrorPopup, setIsErrorPopup] = useState(false)
+  const [loadingLeaves, setLoadingLeaves] = useState(true)
+  const [notification, setNotification] = useState<{
+  message: string
+  type: "error" | "success" | "info"
+} | null>(null)
+const [isStartPickerOpen, setIsStartPickerOpen] = useState(false)
+const [isEndPickerOpen, setIsEndPickerOpen] = useState(false)
 
-  const availableLeaveTypes = [
-    { name: "Casual Leave", code: "CL", left: 7 },
-    { name: "Sick Leave", code: "SL", left: 4 },
-    { name: "Leave Without Pay", code: "LWP", left: null },
-    { name: "Work From Home", code: "WFH", left: null },
-    { name: "Comp-Off", code: "CO", left: null },
-  ]
 
-  const leaveTextColorMap: Record<string, string> = {
-    "Casual Leave": "text-yellow-600 bg-yellow-100",
-    "Sick Leave": "text-red-600 bg-red-100",
-    "Leave Without Pay": "text-orange-600 bg-orange-100",
-    "Work From Home": "text-blue-600 bg-blue-100",
-    "Comp-Off": "text-green-600 bg-green-100",
-  }
 
-  const leavePillMap: Record<string, string> = {
-    "Casual Leave": "bg-yellow-50 text-yellow-700",
-    "Sick Leave": "bg-red-50 text-red-700",
-    "Leave Without Pay": "bg-orange-50 text-orange-700",
-    "Work From Home": "bg-blue-50 text-blue-700",
-    "Comp-Off": "bg-green-50 text-green-700",
-  }
+  const fetchLeaveTypes = async (force = false) => {
+    if (!force && leaveTypes.length > 0) return
 
-  const selectedTextClass = leaveType ? leaveTextColorMap[leaveType] : "text-gray-900 dark:text-white"
-
-  // File constraints
-  const ALLOWED_TYPES = ["image/png", "image/jpeg", "application/pdf", "application/msword"]
-  const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5MB
-  const MAX_FILES:number = 5
-
-  const handleFilesAdd = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const filesList = e.target.files
-    if (!filesList || filesList.length === 0) {
-      e.currentTarget.value = ""
-      return
-    }
-
-    const incoming = Array.from(filesList)
-    const remainingSlots = Math.max(0, MAX_FILES - attachments.length)
-
-    const errors: string[] = []
-    const dedupeKey = (f: File) => `${f.name}-${f.size}-${f.lastModified}`
-
-    // Build a set of existing keys for duplicate detection
-    const existingKeys = new Set(attachments.map(dedupeKey))
-
-    // Validate type/size and exclude duplicates
-    const validated: File[] = []
-    for (const file of incoming) {
-      if (!ALLOWED_TYPES.includes(file.type)) {
-        errors.push(`${file.name}: invalid type`)
-        continue
-      }
-      if (file.size > MAX_FILE_SIZE) {
-        errors.push(`${file.name}: exceeds 5MB`)
-        continue
-      }
-      const key = dedupeKey(file)
-      if (existingKeys.has(key)) {
-        errors.push(`${file.name}: already added`)
-        continue
-      }
-      validated.push(file)
-    }
-
-    // Respect remaining slots
-    let added: File[] = validated
-    let ignoredForCount = 0
-    if (validated.length > remainingSlots) {
-      added = validated.slice(0, remainingSlots)
-      ignoredForCount = validated.length - remainingSlots
-    }
-
-    if (errors.length || ignoredForCount > 0) {
-      const parts = []
-      if (errors.length) parts.push(`Issues: ${errors.join(", ")}`)
-      if (ignoredForCount > 0) parts.push(`Only ${remainingSlots} more allowed; ignored ${ignoredForCount}`)
-      toast({
-        title: "File upload notice",
-        description: parts.join(" | "),
-        variant: "destructive",
-        duration: 4500,
+    try {
+      setLoadingLeaves(true)
+      const res = await axios.get("https://localhost:7080/api/Leave/GetUserRemainingLeaves", {
+        withCredentials: true,
       })
+
+      if (res.data?.result) {
+        setLeaveTypes(res.data.result)
+      } else {
+        setLeaveTypes([])
+      }
+    } catch (err: any) {
+      console.error("Fetch leave types failed:", err)
+      toast({ title: "Error", description: "Failed to fetch leave balances.", variant: "destructive" })
+      setLeaveTypes([])
+    } finally {
+      setLoadingLeaves(false)
     }
-
-    if (added.length > 0) {
-      setAttachments((prev) => [...prev, ...added])
-    }
-
-    // Reset input value to allow re-selecting the same files later
-    e.currentTarget.value = ""
   }
+useEffect(() => {
+  fetchLeaveTypes()
+}, []) // only once on mount
 
-  const removeAttachmentAt = (index: number) => {
-    setAttachments((prev) => {
-      const copy = [...prev]
-      copy.splice(index, 1)
-      return copy
-    })
-  }
+  const getLeaveTextClass = (name: string) => {
+  if (name.includes("Casual")) return "text-yellow-600 bg-yellow-100"
+  if (name.includes("Sick")) return "text-red-600 bg-red-100"
+  if (name.includes("Leave Without Pay")) return "text-orange-600 bg-orange-100"
+  if (name.includes("Work From Home")) return "text-blue-600 bg-blue-100"
+  if (name.includes("Comp-Off")) return "text-green-600 bg-green-100"
+  return "text-gray-900 dark:text-white"
+}
 
-  const clearAllAttachments = () => {
-    setAttachments([])
-  }
+const getLeavePillClass = (name: string) => {
+  if (name.includes("Casual")) return "bg-yellow-50 text-yellow-700"
+  if (name.includes("Sick")) return "bg-red-50 text-red-700"
+  if (name.includes("Leave Without Pay")) return "bg-orange-50 text-orange-700"
+  if (name.includes("Work From Home")) return "bg-blue-50 text-blue-700"
+  if (name.includes("Comp-Off")) return "bg-green-50 text-green-700"
+  return "bg-gray-50 text-gray-800"
+}
+
+
+  const selectedTextClass = leaveType ? getLeaveTextClass(leaveType) : "text-gray-900 dark:text-white"
+  
 
   // Function to disable weekends
   const disableWeekends = (date: Date) => isWeekend(date)
@@ -165,84 +147,116 @@ export function AddLeaveForm() {
     setLeaveDayDetails((prev) => prev.map((detail) => (detail.date === date ? { ...detail, type } : detail)))
   }
 
-  const handleSubmit = () => {
-    if (!leaveType || !startDate || !endDate || !reason || leaveDayDetails.length === 0) {
-      toast({
-        title: "Error",
-        description: "Please fill all required fields.",
-        variant: "destructive",
-        duration: 3000,
-      })
-      return
+  // 🔹 Converts frontend leave type name to backend leaveTypeID
+  const mapLeaveTypeToId = (leaveType: string): number => {
+    const map: Record<string, number> = {
+      "Casual Leave": 1,
+      "Sick Leave": 2,
+      "Leave Without Pay": 3,
+      "Work From Home": 4,
+      "Comp-Off": 5,
     }
 
-    // Require at least one attachment for Sick Leave
-    if (leaveType === "Sick Leave" && attachments.length === 0) {
-      toast({
-        title: "Attachment required",
-        description: "Please upload supporting document(s) for Sick Leave.",
-        variant: "destructive",
-        duration: 3000,
-      })
-      return
-    }
+    return map[leaveType] || 0
+  }
 
-    // Safety validation for selected files
-    for (const file of attachments) {
-      if (!ALLOWED_TYPES.includes(file.type)) {
-        toast({
-          title: "Invalid file type",
-          description: "Allowed types: .png, .jpg, .jpeg, .pdf, .doc",
-          variant: "destructive",
-          duration: 3000,
-        })
-        return
+
+    const handleSubmit = async () => {
+  if (!leaveType || !startDate || !endDate || !reason || leaveDayDetails.length === 0) {
+  setNotification({
+    message: "Please fill all required fields, including reason.",
+    type: "error",
+  });
+  return;
+}
+
+
+
+  // Helper: format Date to YYYY-MM-DD (local date, no timezone)
+  const formatDateToYMD = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+
+  const selectedLeaveType = leaveTypes.find((t) => t.leaveName === leaveType);
+  if (!selectedLeaveType) {
+    setNotification({
+      message: "Please select a valid leave type.",
+      type: "error",
+    });
+    return;
+  }
+
+  const payload = {
+    requestID: defaultValues?.requestID || 0,
+    userID: 123, // Replace with actual logged-in user ID
+    leaveTypeID: selectedLeaveType.leaveTypeId,
+    leaveStartDate: formatDateToYMD(startDate), // ✅ local date only
+    leaveEndDate: formatDateToYMD(endDate),     // ✅ local date only
+    reason,
+    comments: undefined,
+    cancelledByUserID: 0,
+    cancelledOn: null,
+    cancelReason: null,
+    modUserId: 123,
+    leaveDayDetails: leaveDayDetails.map((d) => ({
+      leaveDate: d.date, // Already in YYYY-MM-DD from your state
+      dayType: d.type,
+    })),
+  };
+
+  try {
+    setLoading(true);
+    const res = await fetch(
+      "https://localhost:7080/api/Leave/InsertOrUpdateLeaveRequest",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        credentials: "include",
       }
-      if (file.size > MAX_FILE_SIZE) {
-        toast({
-          title: "File too large",
-          description: "Maximum allowed size is 5MB.",
-          variant: "destructive",
-          duration: 3000,
-        })
-        return
-      }
+    );
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok || data?.status === -1) {
+      const errorMsg = data?.message || data?.error || "Something went wrong while submitting your leave request.";
+      setPopupMessage(errorMsg);
+      setIsErrorPopup(true);
+      setSuccessOpen(true);
+      return;
     }
 
-    const totalDays = leaveDayDetails.length
+    setPopupMessage(data?.message || "Leave Request submitted successfully.");
+    setIsErrorPopup(false);
+    setSuccessOpen(true);
 
-    const submissionData = {
-      leaveType,
-      startDate: format(startDate, "yyyy-MM-dd"),
-      endDate: format(endDate, "yyyy-MM-dd"),
-      totalDays,
-      leaveDayDetails,
-      reason,
-      attachments:
-        attachments.length > 0
-          ? attachments.map((f) => ({
-              name: f.name,
-              type: f.type,
-              size: f.size,
-            }))
-          : [],
-    }
-    console.log("Leave Request Submitted:", submissionData)
-    toast({
-      title: "Success",
-      description: "Leave request submitted successfully!",
-      duration: 3000,
-    })
-    setSuccessOpen(true)
+    if (onSubmitSuccess) {
+  onSubmitSuccess(); // parent can close modal & refresh leave history
+}
+
+    // Re-fetch leave balances
+    fetchLeaveTypes(true);
 
     // Reset form
-    setLeaveType("")
-    setStartDate(undefined)
-    setEndDate(undefined)
-    setReason("")
-    setLeaveDayDetails([])
-    setAttachments([])
+    setLeaveType("");
+    setStartDate(undefined);
+    setEndDate(undefined);
+    setReason("");
+    setLeaveDayDetails([]);
+  } catch (error: any) {
+    console.error("Error submitting leave request:", error);
+    setPopupMessage(error.message || "Failed to submit leave request.");
+    setIsErrorPopup(true);
+    setSuccessOpen(true);
+  } finally {
+    setLoading(false);
   }
+};
+
+
 
   const handleCancel = () => {
     setLeaveType("")
@@ -250,7 +264,6 @@ export function AddLeaveForm() {
     setEndDate(undefined)
     setReason("")
     setLeaveDayDetails([])
-    setAttachments([])
     toast({
       title: "Cancelled",
       description: "Leave request form cleared.",
@@ -258,56 +271,89 @@ export function AddLeaveForm() {
     })
   }
 
-  const remainingSlots = Math.max(0, MAX_FILES - attachments.length)
+
+  // Disable all past dates
+const disablePastDates = (date: Date) => {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  return date < today // disables any date before today
+}
+
+// Combined function to disable weekends and past dates
+const disableInvalidDates = (date: Date) => disableWeekends(date) || disablePastDates(date)
 
   return (
-  <div className="space-y-6 px-3 sm:px-6">
-      <h2 className="text-xl font-semibold text-gray-900 dark:text-white">New Leave Request</h2>
+    <>
+      <div className="space-y-6 px-3 sm:px-6">
+        {notification && (
+  <div
+    className={`
+      px-4 py-3 rounded-md mb-4 text-sm font-medium flex items-center justify-between
+      ${notification.type === "error" ? "bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300" : ""}
+      ${notification.type === "success" ? "bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-300" : ""}
+      ${notification.type === "info" ? "bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300" : ""}
+    `}
+  >
+    <span>{notification.message}</span>
+    <Button
+      size="sm"
+      variant="ghost"
+      onClick={() => setNotification(null)}
+      className="ml-2 p-0"
+    >
+      ✕
+    </Button>
+  </div>
+)}
 
-      <div className="space-y-4">
-        <div className="space-y-2">
-          <Label htmlFor="leaveType" className="text-sm font-medium text-gray-700 dark:text-gray-300">
-            Leave Type
-          </Label>
-          <Select value={leaveType} onValueChange={setLeaveType}>
-            <SelectTrigger
-              className={cn(
-                "bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-600",
-                !leaveType ? "text-gray-500 dark:text-gray-400" : selectedTextClass,
-              )}
-            >
-              <SelectValue placeholder="Select Leave Type" />
-            </SelectTrigger>
-            <SelectContent className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 p-2">
-              <div className="space-y-3">
-                {availableLeaveTypes.map((type) => (
-                  <SelectItem
-                    key={type.name}
-                    value={type.name}
-                    className={cn(
-                      "flex items-center justify-between px-2 py-2 rounded-md cursor-pointer gap-2",
-                      leavePillMap[type.name],
-                    )}
-                  >
-                    <span>{type.name}</span>
-                    {type.left !== null && (
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+          </h2>
+
+
+          <div className="space-y-4">
+            {/* Leave Type Dropdown */}
+          <div className="space-y-2">
+            <Label htmlFor="leaveType" className="text-sm font-medium text-gray-700 dark:text-gray-300">
+              Leave Type
+            </Label>
+            <Select value={leaveType} onValueChange={setLeaveType}>
+              <SelectTrigger
+                className={cn(
+                  "bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-600",
+                  !leaveType ? "text-gray-500 dark:text-gray-400" : selectedTextClass,
+                )}
+              >
+                <SelectValue placeholder="Select Leave Type" />
+              </SelectTrigger>
+
+              <SelectContent className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 p-2">
+                <div className="space-y-3">
+                  {leaveTypes.map((type : LeaveType) => (
+                    <SelectItem
+                      key={type.leaveTypeId}
+                      value={type.leaveName}
+                      className={cn(
+                        "flex items-center justify-between px-2 py-2 rounded-md cursor-pointer gap-2",
+                        getLeavePillClass(type.leaveName) || "bg-gray-50 text-gray-800",
+                      )}
+                    >
+                      <span>{type.leaveName}</span>
                       <span className="ml-2 text-xs font-semibold rounded-full bg-white/40 px-2 py-0.5">
-                        {type.left} left
+                        {type.remainingLeaves === null ? "" : `${type.remainingLeaves} left`}
                       </span>
-                    )}
-                  </SelectItem>
-                ))}
-              </div>
-            </SelectContent>
-          </Select>
-        </div>
+                    </SelectItem>
+                  ))}
+                </div>
+              </SelectContent>
+            </Select>
+          </div>
 
    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="space-y-2">
             <Label htmlFor="startDate" className="text-sm font-medium text-gray-700 dark:text-gray-300 w-full">
               Start Date
             </Label>
-            <Popover>
+            <Popover open={isStartPickerOpen} onOpenChange={setIsStartPickerOpen}>
               <PopoverTrigger asChild>
                 <Button
                   variant={"outline"}
@@ -320,15 +366,39 @@ export function AddLeaveForm() {
                   {startDate ? format(startDate, "dd-MM-yyyy") : "dd-mm-yyyy"}
                 </Button>
               </PopoverTrigger>
-              <PopoverContent className="w-auto p-0 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
-                <Calendar
-                  mode="single"
-                  selected={startDate}
-                  onSelect={setStartDate}
-                  disabled={disableWeekends}
-                  initialFocus
-                />
-              </PopoverContent>
+                <PopoverContent
+                  align="start"
+                  sideOffset={8}
+                  className="w-auto p-4 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl shadow-2xl animate-in fade-in-80">
+                  
+                    <Calendar
+                      mode="single"
+                      selected={startDate}
+                      onSelect={(date) => {
+                        if (!date) return
+                        setStartDate(date)
+                        setIsStartPickerOpen(false) // ✅ closes the popover
+                        if (endDate && date > endDate) {
+                          setEndDate(undefined)
+                          setNotification({
+                            message: "End date has been cleared because it cannot be before start date.",
+                            type: "error",
+                          });
+                        }
+                      }}
+                      disabled={disableInvalidDates}
+                      className={cn(
+                        "rounded-xl text-sm font-medium shadow-inner bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100 p-3",
+                        "[&_.rdp-head_cell]:text-gray-500 dark:[&_.rdp-head_cell]:text-gray-400",
+                        "[&_.rdp-day]:h-9 [&_.rdp-day]:w-9 [&_.rdp-day]:rounded-full [&_.rdp-day]:transition-all [&_.rdp-day]:duration-150",
+                        "[&_.rdp-day:hover]:bg-gray-200 dark:[&_.rdp-day:hover]:bg-gray-700",
+                        "[&_.rdp-day_selected]:bg-green-600 [&_.rdp-day_selected]:text-white [&_.rdp-day_selected:hover]:bg-green-700",
+                        "[&_.rdp-day_today]:border [&_.rdp-day_today]:border-green-600 [&_.rdp-day_today]:font-bold",
+                        "[&_.rdp-day_disabled]:text-gray-400 [&_.rdp-day_disabled]:opacity-40 [&_.rdp-day_disabled]:line-through"
+                      )}
+                      initialFocus
+                    />
+                </PopoverContent>
             </Popover>
           </div>
 
@@ -336,7 +406,7 @@ export function AddLeaveForm() {
             <Label htmlFor="endDate" className="text-sm font-medium text-gray-700 dark:text-gray-300 w-full">
               End Date
             </Label>
-            <Popover>
+            <Popover open={isEndPickerOpen} onOpenChange={setIsEndPickerOpen}>
               <PopoverTrigger asChild>
                 <Button
                   variant={"outline"}
@@ -349,14 +419,38 @@ export function AddLeaveForm() {
                   {endDate ? format(endDate, "dd-MM-yyyy") : "dd-mm-yyyy"}
                 </Button>
               </PopoverTrigger>
-              <PopoverContent className="w-auto p-0 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
-                <Calendar
-                  mode="single"
-                  selected={endDate}
-                  onSelect={setEndDate}
-                  disabled={disableWeekends}
-                  initialFocus
-                />
+                <PopoverContent
+                  align="start"
+                  sideOffset={8}
+                  className="w-auto bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl shadow-2xl animate-in fade-in-80">
+                  
+                    <Calendar
+                      mode="single"
+                      selected={endDate}
+                      onSelect={(date) => {
+                        if (!date) return;
+
+                        if (startDate && date < startDate) {
+                          setNotification({ message: "End date cannot be before start date.", type: "error" });
+                          return; // don't set invalid end date
+                        }
+
+                        setEndDate(date);
+                        setIsEndPickerOpen(false) // ✅ closes the popover
+                      }}
+                    disabled={disableInvalidDates}
+                    className={cn(
+                      "rounded-xl text-sm font-medium shadow-inner bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100 p-3",
+                      "[&_.rdp-head_cell]:text-gray-500 dark:[&_.rdp-head_cell]:text-gray-400",
+                      "[&_.rdp-day]:h-9 [&_.rdp-day]:w-9 [&_.rdp-day]:rounded-full [&_.rdp-day]:transition-all [&_.rdp-day]:duration-150",
+                      "[&_.rdp-day:hover]:bg-gray-200 dark:[&_.rdp-day:hover]:bg-gray-700",
+                      "[&_.rdp-day_selected]:bg-green-600 [&_.rdp-day_selected]:text-white [&_.rdp-day_selected:hover]:bg-green-700",
+                      "[&_.rdp-day_today]:border [&_.rdp-day_today]:border-green-600 [&_.rdp-day_today]:font-bold",
+                      "[&_.rdp-day_disabled]:text-gray-400 [&_.rdp-day_disabled]:opacity-40 [&_.rdp-day_disabled]:line-through"
+                    )}
+                    initialFocus
+                  />
+                
               </PopoverContent>
             </Popover>
           </div>
@@ -367,65 +461,7 @@ export function AddLeaveForm() {
             <Label className="text-sm font-medium text-gray-700 dark:text-gray-300 w-full">Attachments</Label>
 
             {/* Keep chooser visible until 5 files are attached */}
-            {remainingSlots > 0 && (
-              <>
-                <Input
-                  id="attachments"
-                  type="file"
-                  multiple
-                  accept="image/png,image/jpeg,application/pdf,application/msword"
-                  onChange={handleFilesAdd}
-                  className="bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-600 text-gray-900 dark:text-white w-full"
-                />
-                <p className="text-xs text-gray-500 dark:text-gray-400">
-                  You can add {remainingSlots} more file{remainingSlots === 1 ? "" : "s"}. Accepted: .png, .jpg, .jpeg,
-                  .pdf, .doc. Max size 5MB each.
-                </p>
-              </>
-            )}
-
-            {attachments.length > 0 && (
-              <div className="space-y-2">
-                <div className="rounded-md border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-700 w-full">
-                  {attachments.map((file, idx) => (
-                    <div key={file.name + idx} className="flex items-center justify-between px-3 py-2 text-sm w-full">
-                      <div className="min-w-0 flex-1 truncate">
-                        <span className="truncate">{file.name}</span>{" "}
-                        <span className="text-gray-500 dark:text-gray-400">
-                          {"\u2022"} {(file.size / (1024 * 1024)).toFixed(2)} MB
-                        </span>
-                      </div>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => removeAttachmentAt(idx)}
-                        aria-label={`Remove ${file.name}`}
-                        className="text-gray-700 dark:text-gray-300"
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-                <div className="flex items-center justify-between w-full">
-                  <span className="text-xs text-gray-500 dark:text-gray-400">
-                    {attachments.length} of {MAX_FILES} file{MAX_FILES === 1 ? "" : "s"} attached
-                  </span>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={clearAllAttachments}
-                    className="text-gray-700 dark:text-gray-300 bg-transparent"
-                    aria-label="Clear all attachments"
-                  >
-                    <X className="mr-2 h-4 w-4" />
-                    Clear all
-                  </Button>
-                </div>
-              </div>
-            )}
+            
           </div>
         )}
 
@@ -481,7 +517,7 @@ export function AddLeaveForm() {
 
         <div className="space-y-2">
           <Label htmlFor="reason" className="text-sm font-medium text-gray-700 dark:text-gray-300">
-            Reason
+            Reason*
           </Label>
           <Textarea
             id="reason"
@@ -509,15 +545,59 @@ export function AddLeaveForm() {
       </div>
 
       <Dialog open={successOpen} onOpenChange={setSuccessOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>{"Leave Request submitted successfully"}</DialogTitle>
-          </DialogHeader>
-          <DialogFooter>
-            <Button onClick={() => setSuccessOpen(false)}>{"OK"}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle
+                className={`text-lg font-semibold ${
+                  isErrorPopup ? "text-red-600" : "text-green-600"
+                }`}
+              >
+                {isErrorPopup ? "Leave Submission Failed" : "Leave Request Submitted Successfully"}
+              </DialogTitle>
+            </DialogHeader>
+
+            <div className="text-gray-700 dark:text-gray-300 mt-3 text-sm">
+              {popupMessage}
+            </div>
+
+            <DialogFooter>
+              <Button
+                onClick={() => setSuccessOpen(false)}
+                className={
+                  isErrorPopup
+                    ? "bg-red-600 hover:bg-red-700 text-white"
+                    : "bg-green-600 hover:bg-green-700 text-white"
+                }
+              >
+                OK
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
     </div>
+    {/* Full-Screen Loader Overlay */}
+      {loading && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-900 rounded-xl p-6 flex flex-col items-center gap-3 shadow-lg">
+            <Loader2 className="h-8 w-8 animate-spin text-green-600" />
+            <p className="text-gray-700 dark:text-gray-300 text-sm">
+              Submitting your leave request...
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Full-Screen Page Loader for fetching leave types */}
+    {loadingLeaves && (
+      <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-40">
+        <div className="bg-white dark:bg-gray-900 rounded-xl p-6 flex flex-col items-center gap-3 shadow-lg">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+          <p className="text-gray-700 dark:text-gray-300 text-sm">
+            Loading leave balances...
+          </p>
+        </div>
+      </div>
+    )}
+    </>
   )
 }

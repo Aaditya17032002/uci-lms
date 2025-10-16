@@ -1,10 +1,11 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../../ui/collapsible"
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { Badge } from "../../ui/badge"
+import axios from "axios"
 
 interface Policy {
   id: number
@@ -15,51 +16,101 @@ interface Policy {
   leaveTypes: string[]
 }
 
-const mockPolicies: Policy[] = [
-  {
-    id: 1,
-    name: "Intern Policy",
-    description: "For Interns/Trainees - Only LWP Allowed, No Approval Required",
-    status: "Active",
-    createdBy: "Paritosh Unakar",
-    leaveTypes: ["Leave Without Pay (LWP)"]
-  },
-  {
-    id: 2,
-    name: "Standard Policy (FTE)",
-    description: "Standard Leave Policy for Full-Time Employees",
-    status: "Active",
-    createdBy: "Zeel Sathwara",
-    leaveTypes: ["Casual Leave (CL)", "Sick Leave (SL)", "Work From Home (WFH)"]
-  },
-  {
-    id: 3,
-    name: "Executive Policy (FTE)",
-    description: "Enhanced Leave Policy for Executive Full-Time Employees",
-    status: "Active",
-    createdBy: "Tushar Mishra",
-    leaveTypes: ["Casual Leave (CL)", "Sick Leave (SL)", "Work From Home (WFH)", "Comp-Off"]
-  },
-  {
-    id: 4,
-    name: "Probation Policy",
-    description: "Leave Policy for Employees on Probation Period",
-    status: "Active",
-    createdBy: "Paritosh Unakar",
-    leaveTypes: ["Sick Leave (SL)"]
-  },
-  {
-    id: 5,
-    name: "Contract-Employee Policy",
-    description: "Leave Policy for Contractual Employees",
-    status: "Active",
-    createdBy: "Zeel Sathwara",
-    leaveTypes: ["Leave Without Pay (LWP)", "Work From Home (WFH)"]
-  },
-]
+type LeavePolicyRow = {
+  policyID: number
+  policyName: string
+  leaveTypeID: number
+  leaveName?: string
+  description: string
+  isActive: boolean
+  createdBy: string
+  createdOn?: string
+  modifiedBy?: string
+  modifiedOn?: string
+}
+
+type LeaveType = {
+  leaveTypeId: number
+  leaveName: string
+  description?: string
+  colorCode?: string
+  isActive?: boolean
+  createdBy?: string
+  modifiedBy?: string
+}
 
 export function LeavePoliciesPage() {
-  const [openPolicies, setOpenPolicies] = useState<number[]>([1]) // Keep first policy open by default
+  const [openPolicies, setOpenPolicies] = useState<number[]>([]) // will open first after load
+  const [policies, setPolicies] = useState<Policy[]>([])
+  const [loading, setLoading] = useState<boolean>(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true)
+      setError(null)
+      try {
+        console.log("[LeavePolicies] Fetching policies and leave types...")
+        const [policiesResp, leaveTypesResp] = await Promise.all([
+          axios.get<LeavePolicyRow[]>("https://localhost:7080/api/Leave/GetLeavePolicies", { withCredentials: true }),
+          axios.get<LeaveType[]>("https://localhost:7080/api/Leave/GetLeaveTypes", { withCredentials: true }),
+        ])
+
+        console.log("[LeavePolicies] Raw policies response:", policiesResp.data)
+        console.log("[LeavePolicies] Raw leave types response:", leaveTypesResp.data)
+
+        const policyRows: LeavePolicyRow[] = Array.isArray(policiesResp.data) ? policiesResp.data : []
+        const leaveTypes: LeaveType[] = Array.isArray(leaveTypesResp.data) ? leaveTypesResp.data : []
+
+        // Build a map for leaveTypeId -> leaveName
+        const leaveTypeIdToName = new Map<number, string>()
+        for (const lt of leaveTypes) {
+          leaveTypeIdToName.set(lt.leaveTypeId, lt.leaveName)
+        }
+        console.log("[LeavePolicies] leaveTypeIdToName:", Object.fromEntries(leaveTypeIdToName))
+
+        // Group rows by policyID
+        const grouped = new Map<number, Policy>()
+        for (const row of policyRows) {
+          const existing = grouped.get(row.policyID)
+          const leaveTypeName = row.leaveName || leaveTypeIdToName.get(row.leaveTypeID)
+          const safeLeaveTypeName = leaveTypeName ?? `Type #${row.leaveTypeID}`
+
+          if (!existing) {
+            grouped.set(row.policyID, {
+              id: row.policyID,
+              name: row.policyName,
+              description: row.description,
+              status: row.isActive ? "Active" : "Inactive",
+              createdBy: row.createdBy,
+              leaveTypes: [safeLeaveTypeName],
+            })
+          } else {
+            // Avoid duplicates
+            if (!existing.leaveTypes.includes(safeLeaveTypeName)) {
+              existing.leaveTypes.push(safeLeaveTypeName)
+            }
+          }
+        }
+
+        const finalPolicies = Array.from(grouped.values())
+        console.log("[LeavePolicies] Processed policies:", finalPolicies)
+        setPolicies(finalPolicies)
+
+        // Open the first policy by default
+        if (finalPolicies.length > 0) {
+          setOpenPolicies([finalPolicies[0].id])
+        }
+      } catch (e: any) {
+        console.error("[LeavePolicies] Failed to fetch:", e)
+        setError(e?.message || "Failed to load leave policies")
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchData()
+  }, [])
 
   const togglePolicy = (id: number) => {
     setOpenPolicies(prev =>
@@ -75,7 +126,13 @@ export function LeavePoliciesPage() {
         </CardTitle>
       </CardHeader>
       <CardContent className="p-0 space-y-4">
-        {mockPolicies.map(policy => (
+        {loading && (
+          <div className="p-4 text-sm text-gray-600 dark:text-gray-300">Loading policies...</div>
+        )}
+        {error && (
+          <div className="p-4 text-sm text-red-600 dark:text-red-400">{error}</div>
+        )}
+        {!loading && !error && policies.map(policy => (
           <Collapsible
             key={policy.id}
             open={openPolicies.includes(policy.id)}
@@ -91,18 +148,30 @@ export function LeavePoliciesPage() {
                 )}
                 <span>{policy.name}</span>
               </div>
+              <div className="ml-4">
+                <Badge
+                  variant="outline"
+                  className={
+                    policy.status === "Active"
+                      ? "border-green-200 text-green-700 bg-green-50 dark:border-green-700 dark:text-green-300 dark:bg-green-900/20"
+                      : "border-red-200 text-red-700 bg-red-50 dark:border-red-700 dark:text-red-300 dark:bg-red-900/20"
+                  }
+                >
+                  {policy.status}
+                </Badge>
+              </div>
             </CollapsibleTrigger>
             <CollapsibleContent className="p-4 border-t border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-700 dark:text-gray-300">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                 <div>
-                  <p><strong className="text-gray-900 dark:text-gray-100">Policy Name:</strong> {policy.name}</p>
-                  <p><strong className="text-gray-900 dark:text-gray-100">Description:</strong> {policy.description}</p>
-                  <p><strong className="text-gray-900 dark:text-gray-100">Status:</strong> <Badge variant="outline" className={policy.status === "Active" ? "border-green-200 text-green-700 bg-green-50 dark:border-green-700 dark:text-green-300 dark:bg-green-900/20" : "border-red-200 text-red-700 bg-red-50 dark:border-red-700 dark:text-red-300 dark:bg-red-900/20"}>{policy.status}</Badge></p>
+                  <p className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-300">Description</p>
+                  <p className="mt-1 text-gray-900 dark:text-gray-100">{policy.description}</p>
                 </div>
                 <div>
-                  <p><strong className="text-gray-900 dark:text-gray-100">Created By:</strong> {policy.createdBy}</p>
-                  <p className="mt-2"><strong className="text-gray-900 dark:text-gray-100">Leave Types:</strong></p>
-                  <div className="flex flex-wrap gap-2 mt-1">
+                  <p className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-300">Created By</p>
+                  <p className="mt-1 text-gray-900 dark:text-gray-100 font-semibold">{policy.createdBy}</p>
+                  <p className="mt-4 text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-300">Leave Types</p>
+                  <div className="flex flex-wrap gap-2 mt-2">
                     {policy.leaveTypes.map((type, index) => (
                       <Badge key={index} variant="secondary" className="bg-blue-100 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300">
                         {type}

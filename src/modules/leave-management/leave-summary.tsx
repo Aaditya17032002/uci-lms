@@ -1,12 +1,13 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card"
 import { Input } from "../../ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../ui/tabs"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../../ui/collapsible"
 import { ChevronDown, ChevronRight, Search } from 'lucide-react'
 import { Badge } from "../../ui/badge"
+import { apiClient } from "../../lib/apiClient"
 
 interface LeaveBalance {
   type: string
@@ -22,92 +23,88 @@ interface UserLeaveSummary {
   leaveBalances: LeaveBalance[]
 }
 
-const mockUserLeaveSummaries: UserLeaveSummary[] = [
-  {
-    id: 1,
-    name: "Abdul Bilal",
-    policy: "Standard Policy (FTE)",
-    leaveBalances: [
-      { type: "Casual Leave (CL) (2025)", total: 7, used: 2, remaining: 5 },
-      { type: "Sick Leave (SL) (2025)", total: 5, used: 1, remaining: 4 },
-      { type: "Work From Home (WFH) (2025)", total: 10, used: 3, remaining: 7 },
-      { type: "Comp-Off (2025)", total: 2, used: 0, remaining: 2 },
-    ]
-  },
-  {
-    id: 2,
-    name: "Aditya Jangam",
-    policy: "Standard Policy (FTE)",
-    leaveBalances: [
-      { type: "Casual Leave (CL) (2025)", total: 7, used: 3, remaining: 4 },
-      { type: "Sick Leave (SL) (2025)", total: 5, used: 0, remaining: 5 },
-      { type: "Work From Home (WFH) (2025)", total: 10, used: 5, remaining: 5 },
-      { type: "Comp-Off (2025)", total: 2, used: 1, remaining: 1 },
-    ]
-  },
-  {
-    id: 3,
-    name: "Aksh Desai",
-    policy: "Standard Policy (FTE)",
-    leaveBalances: [
-      { type: "Casual Leave (CL) (2025)", total: 7, used: 2, remaining: 5 },
-      { type: "Sick Leave (SL) (2025)", total: 5, used: 2, remaining: 3 },
-      { type: "Work From Home (WFH) (2025)", total: 10, used: 1, remaining: 9 },
-      { type: "Comp-Off (2025)", total: 2, used: 0, remaining: 2 },
-    ]
-  },
-  {
-    id: 4,
-    name: "Akshay Supare",
-    policy: "Executive Policy (FTE)", // Changed policy for demonstration
-    leaveBalances: [
-      { type: "Casual Leave (CL) (2025)", total: 10, used: 2, remaining: 8 },
-      { type: "Sick Leave (SL) (2025)", total: 7, used: 1, remaining: 6 },
-      { type: "Work From Home (WFH) (2025)", total: 15, used: 3, remaining: 12 },
-      { type: "Comp-Off (2025)", total: 5, used: 0, remaining: 5 },
-    ]
-  },
-  {
-    id: 5,
-    name: "Aryan Ginoya",
-    policy: "Standard Policy (FTE)",
-    leaveBalances: [
-      { type: "Casual Leave (CL) (2025)", total: 7, used: 2, remaining: 5 },
-      { type: "Sick Leave (SL) (2025)", total: 5, used: 1, remaining: 4 },
-      { type: "Work From Home (WFH) (2025)", total: 10, used: 3, remaining: 7 },
-      { type: "Comp-Off (2025)", total: 2, used: 0, remaining: 2 },
-    ]
-  },
-  {
-    id: 6,
-    name: "Bankit Dhameliya",
-    policy: "Intern Policy", // Changed policy for demonstration
-    leaveBalances: [
-      { type: "Leave Without Pay (LWP) (2025)", total: 999, used: 10, remaining: 989 },
-    ]
-  },
-]
+interface ApiLeaveSummaryItem {
+  userName: string
+  policyName: string
+  leaveTypeName: string
+  year: number
+  annualAlowance: number | null
+  monthlyLimit: number | null
+  usedLeaves: number
+  remainingLeaves: number
+  carriedLeaves: number
+  carriedLeavesExpiry: string
+}
 
 export function LeaveSummaryPage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [activeTab, setActiveTab] = useState("all")
   const [openLeaveTypes, setOpenLeaveTypes] = useState<Record<number, string[]>>({}) // { userId: [leaveType, ...]}
+  const [users, setUsers] = useState<UserLeaveSummary[]>([])
+  const [loading, setLoading] = useState<boolean>(true)
+  const [error, setError] = useState<string | null>(null)
 
-  const uniquePolicies = useMemo(() => {
-    const policies = new Set(mockUserLeaveSummaries.map(user => user.policy))
-    return ["All", ...Array.from(policies)].sort()
+  useEffect(() => {
+    const fetchSummary = async () => {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await apiClient.get<ApiLeaveSummaryItem[]>("/Leave/GetUserLeaveSummary")
+        const rows = res.data || []
+
+        // Group by userName + policyName
+        const grouped = new Map<string, UserLeaveSummary>()
+        let autoId = 1
+        for (const r of rows) {
+          const key = `${r.userName}|||${r.policyName}`
+          if (!grouped.has(key)) {
+            grouped.set(key, {
+              id: autoId++,
+              name: r.userName,
+              policy: r.policyName,
+              leaveBalances: [],
+            })
+          }
+          const total = (r.annualAlowance ?? (Number(r.usedLeaves) + Number(r.remainingLeaves))) || 0
+          const typeLabel = `${r.leaveTypeName} (${r.year})`
+          grouped.get(key)!.leaveBalances.push({
+            type: typeLabel,
+            total: Number(total),
+            used: Number(r.usedLeaves || 0),
+            remaining: Number(r.remainingLeaves || 0),
+          })
+        }
+
+        // Sort for consistent UI
+        const normalized = Array.from(grouped.values()).sort((a, b) => a.name.localeCompare(b.name))
+        setUsers(normalized)
+      } catch (e: any) {
+        // Fallback to empty state and show error briefly
+        setError("Failed to load leave summary")
+        // eslint-disable-next-line no-console
+        console.error("LeaveSummary fetch error", e)
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchSummary()
   }, [])
 
+  const uniquePolicies = useMemo(() => {
+    const policies = new Set(users.map(user => user.policy))
+    return ["All", ...Array.from(policies)].sort()
+  }, [users])
+
   const filteredUsers = useMemo(() => {
-    let users = mockUserLeaveSummaries.filter(user =>
+    let filtered = users.filter(user =>
       user.name.toLowerCase().includes(searchTerm.toLowerCase())
     )
 
     if (activeTab !== "all") {
-      users = users.filter(user => user.policy.toLowerCase().replace(/\s/g, '-').replace(/[^a-z0-9-]/g, '') === activeTab)
+      filtered = filtered.filter(user => user.policy.toLowerCase().replace(/\s/g, '-').replace(/[^a-z0-9-]/g, '') === activeTab)
     }
-    return users
-  }, [searchTerm, activeTab])
+    return filtered
+  }, [users, searchTerm, activeTab])
 
   const toggleLeaveType = (userId: number, leaveType: string) => {
     setOpenLeaveTypes(prev => {
@@ -121,6 +118,10 @@ export function LeaveSummaryPage() {
     })
   }
 
+  if (loading) {
+    return <div className="space-y-6"><CardHeader className="p-0"><CardTitle className="text-xl font-semibold">User Leave Summary</CardTitle></CardHeader><CardContent className="p-0"><p className="text-sm text-gray-600">Loading...</p></CardContent></div>
+  }
+
   return (
     <div className="space-y-6">
       <CardHeader className="p-0">
@@ -129,6 +130,9 @@ export function LeaveSummaryPage() {
         </CardTitle>
       </CardHeader>
       <CardContent className="p-0">
+        {error && (
+          <div className="mb-4 text-sm text-red-600">{error}</div>
+        )}
         <div className="relative mb-4">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500 dark:text-gray-400" />
           <Input
@@ -147,7 +151,7 @@ export function LeaveSummaryPage() {
                 value={policy.toLowerCase().replace(/\s/g, '-').replace(/[^a-z0-9-]/g, '')} // Create a valid ID from policy name
                 className="flex-shrink-0 px-4 py-2 text-sm font-medium rounded-md data-[state=active]:bg-white dark:data-[state=active]:bg-gray-800 data-[state=active]:text-gray-900 dark:data-[state=active]:text-gray-100 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors duration-200"
               >
-                {policy} ({policy === "All" ? mockUserLeaveSummaries.length : mockUserLeaveSummaries.filter(u => u.policy === policy).length})
+                {policy} ({policy === "All" ? users.length : users.filter(u => u.policy === policy).length})
               </TabsTrigger>
             ))}
           </TabsList>

@@ -10,11 +10,16 @@ import { Input } from "../../ui/input"
 import { Textarea } from "../../ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../../ui/collapsible"
-import { Clock, Calendar, Plus, Edit, Trash2, Info, ChevronDown, Send, X } from "lucide-react"
+import { Clock, Calendar, Plus, Edit, Trash2, Info, ChevronDown, Send, X,MessageSquare } from "lucide-react"
 import { BulkEntryModal } from "./bulk-entry-modal"
 import { WeekSelector } from "./week-selector"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../../ui/dialog"
+import { CommentsModalEmp } from "../../modals/comments-emp"
+import { toast } from "../../hooks/use-toast"
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "../../ui/hover-card"
 
 interface TimesheetEntry {
+  lineID: number
   id: string
   engagement: string
   task: string
@@ -33,7 +38,7 @@ export function TimesheetPage() {
   const [showNag2, setShowNag2] = useState(true)
   const [showPopup, setShowPopup] = useState(false)
 
-  const [currentWeek, setCurrentWeek] = useState("Aug 18 - Aug 22, 2025")
+  const [currentWeek, setCurrentWeek] = useState("")
   const [selectedDate, setSelectedDate] = useState("Monday, August 18")
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false)
   const [isWeekSelectorOpen, setIsWeekSelectorOpen] = useState(false)
@@ -41,13 +46,13 @@ export function TimesheetPage() {
   const [isAddingEntry, setIsAddingEntry] = useState(false)
   const [editingEntry, setEditingEntry] = useState<string | null>(null)
   const [weekDays, setWeekDays] = useState([
-    { day: "Mon", date: "18", full: "Monday, August 18", status: "filled", isWeekend: false },
-    { day: "Tue", date: "19", full: "Tuesday, August 19", status: "filled", isWeekend: false },
-    { day: "Wed", date: "20", full: "Wednesday, August 20", status: "filled", isWeekend: false },
-    { day: "Thu", date: "21", full: "Thursday, August 21", status: "filled", isWeekend: false },
-    { day: "Fri", date: "22", full: "Friday, August 22", status: "filled", isWeekend: false },
-    { day: "Sat", date: "23", full: "Saturday, August 23", status: "optional", isWeekend: true },
-    { day: "Sun", date: "24", full: "Sunday, August 24", status: "optional", isWeekend: true },
+    { day: "Mon", date: "18", full: "Monday, August 18", status: "filled", isWeekend: false, iso: "" },
+    { day: "Tue", date: "19", full: "Tuesday, August 19", status: "filled", isWeekend: false, iso: "" },
+    { day: "Wed", date: "20", full: "Wednesday, August 20", status: "filled", isWeekend: false, iso: "" },
+    { day: "Thu", date: "21", full: "Thursday, August 21", status: "filled", isWeekend: false, iso: "" },
+    { day: "Fri", date: "22", full: "Friday, August 22", status: "filled", isWeekend: false, iso: "" },
+    { day: "Sat", date: "23", full: "Saturday, August 23", status: "optional", isWeekend: true, iso: "" },
+    { day: "Sun", date: "24", full: "Sunday, August 24", status: "optional", isWeekend: true, iso: "" },
   ])
 
   const [newEntry, setNewEntry] = useState({
@@ -57,6 +62,37 @@ export function TimesheetPage() {
     minutes: 0,
     comments: "",
   })
+  const [editEntryDraft, setEditEntryDraft] = useState({
+       engagement: "",
+       task: "",
+      hours: 0,
+       minutes: 0,
+       comments: "",
+     })
+
+  const [engagementOptions, setEngagementOptions] = useState<{ engagementID: number; title: string }[]>([])
+  const [taskOptions, setTaskOptions] = useState<{ taskID: number; taskName: string }[]>([])
+
+  const [timesheetId, setTimesheetId] = useState<number | null>(null)
+  const [isSubmitOpen, setIsSubmitOpen] = useState(false)
+  const [submitComment, setSubmitComment] = useState("")
+  const [showSuccessToast, setShowSuccessToast] = useState(false)
+  const [warnMessage, setWarnMessage] = useState<string>("")
+  const [showWarnToast, setShowWarnToast] = useState(false)
+  const [originalEntry, setOriginalEntry] = useState<TimesheetEntry | null>(null)
+  const [isViewingSpecificWeek, setIsViewingSpecificWeek] = useState(false)
+  const [selectedWeekTimesheetId, setSelectedWeekTimesheetId] = useState<number | null>(null)
+  const [timesheetStatus, setTimesheetStatus] = useState<number | null>(null) // 1-Pending,2-Submitted,3-Approved,4-Rejected
+
+  // Comments modal state
+  const [isCommentsOpen, setIsCommentsOpen] = useState(false)
+  const [commentsData, setCommentsData] = useState<any[]>([])
+
+  // V1 meta: current week range and rejected summary
+  const [v1CurrentStartISO, setV1CurrentStartISO] = useState<string | null>(null)
+  const [v1CurrentEndISO, setV1CurrentEndISO] = useState<string | null>(null)
+  const [rejectedCount, setRejectedCount] = useState<number>(0)
+  const [rejectedRanges, setRejectedRanges] = useState<{ timesheetID: number; startDate: string; endDate: string }[]>([])
 
   const handleNotify = () => {
     setShowPopup(true)
@@ -65,200 +101,8 @@ export function TimesheetPage() {
     }, 3000) // hides after 3 seconds
   }
 
-  // Sample data for different weeks
-  const [entries, setEntries] = useState<TimesheetEntry[]>([
-    // July 28 - Aug 03 week entries
-    {
-      id: "1",
-      engagement: "Smart Attendance System",
-      task: "Frontend Development",
-      hours: 4,
-      minutes: 30,
-      comments: "Implemented user authentication module",
-      date: "Monday, August 18",
-    },
-    {
-      id: "2",
-      engagement: "Smart Attendance System",
-      task: "Testing",
-      hours: 3,
-      minutes: 30,
-      comments: "Implemented user authentication module",
-      date: "Monday, August 18",
-    },
-    {
-      id: "3",
-      engagement: "AI Chatbot for Customer Support",
-      task: "Backend Development",
-      hours: 3,
-      minutes: 30,
-      comments: "API integration for chat responses",
-      date: "Monday, August 19",
-    },
-    {
-      id: "4",
-      engagement: "IoT-Based Home Automation",
-      task: "UI/UX Design",
-      hours: 5,
-      minutes: 0,
-      comments: "Dashboard wireframes and prototypes",
-      date: "Tuesday, August 19",
-    },
-    {
-      id: "5",
-      engagement: "Smart Attendance System",
-      task: "Testing",
-      hours: 3,
-      minutes: 0,
-      comments: "Unit testing for authentication",
-      date: "Tuesday, August 19",
-    },
-    {
-      id: "6",
-      engagement: "Blockchain Voting Platform",
-      task: "Frontend Development",
-      hours: 6,
-      minutes: 0,
-      comments: "Voting interface implementation",
-      date: "Wednesday, August 20",
-    },
-    {
-      id: "7",
-      engagement: "AI Chatbot for Customer Support",
-      task: "Documentation",
-      hours: 2,
-      minutes: 0,
-      comments: "API documentation updates",
-      date: "Wednesday, August 20",
-    },
-    {
-      id: "8",
-      engagement: "E-commerce Product Recommendation Engine",
-      task: "Backend Development",
-      hours: 7,
-      minutes: 0,
-      comments: "Machine learning model optimization",
-      date: "Thursday, August 21",
-    },
-    {
-      id: "9",
-      engagement: "Smart Attendance System",
-      task: "Code Review",
-      hours: 1,
-      minutes: 0,
-      comments: "Peer code review session",
-      date: "Thursday, August 21",
-    },
-    {
-      id: "10",
-      engagement: "E-commerce Product Recommendation Engine",
-      task: "Backend Development",
-      hours: 6,
-      minutes: 0,
-      comments: "Machine learning model optimization",
-      date: "Friday, August 22",
-    },
-    {
-      id: "11",
-      engagement: "Blockchain Voting Platform",
-      task: "Testing",
-      hours: 2,
-      minutes: 0,
-      comments: "Peer code review session",
-      date: "Friday, August 22",
-    },
-    // Aug 04 - Aug 10 week entries (different week)
-    {
-      id: "12",
-      engagement: "Smart Attendance System",
-      task: "Frontend Development",
-      hours: 4,
-      minutes: 30,
-      comments: "Implemented user authentication module",
-      date: "Monday, August 25",
-    },
-    {
-      id: "13",
-      engagement: "AI Chatbot for Customer Support",
-      task: "Backend Development",
-      hours: 3,
-      minutes: 30,
-      comments: "API integration for chat responses",
-      date: "Monday, August 25",
-    },
-    {
-      id: "14",
-      engagement: "IoT-Based Home Automation",
-      task: "UI/UX Design",
-      hours: 5,
-      minutes: 0,
-      comments: "Dashboard wireframes and prototypes",
-      date: "Tuesday, August 26",
-    },
-    {
-      id: "15",
-      engagement: "Smart Attendance System",
-      task: "Testing",
-      hours: 3,
-      minutes: 0,
-      comments: "Unit testing for authentication",
-      date: "Tuesday, August 26",
-    },
-    {
-      id: "16",
-      engagement: "Blockchain Voting Platform",
-      task: "Frontend Development",
-      hours: 6,
-      minutes: 0,
-      comments: "Voting interface implementation",
-      date: "Wednesday, August 27",
-    },
-    {
-      id: "17",
-      engagement: "AI Chatbot for Customer Support",
-      task: "Documentation",
-      hours: 2,
-      minutes: 0,
-      comments: "API documentation updates",
-      date: "Wednesday, August 27",
-    },
-    {
-      id: "18",
-      engagement: "E-commerce Product Recommendation Engine",
-      task: "Backend Development",
-      hours: 7,
-      minutes: 0,
-      comments: "Machine learning model optimization",
-      date: "Thursday, August 28",
-    },
-    {
-      id: "19",
-      engagement: "Smart Attendance System",
-      task: "Code Review",
-      hours: 1,
-      minutes: 0,
-      comments: "Peer code review session",
-      date: "Thursday, August 28",
-    },
-    {
-      id: "20",
-      engagement: "E-commerce Product Recommendation Engine",
-      task: "Backend Development",
-      hours: 6,
-      minutes: 0,
-      comments: "Machine learning model optimization",
-      date: "Friday, August 29",
-    },
-    {
-      id: "21",
-      engagement: "Blockchain Voting Platform",
-      task: "Testing",
-      hours: 2,
-      minutes: 0,
-      comments: "Peer code review session",
-      date: "Friday, August 29",
-    },
-  ])
+  // Entries loaded for the selected week
+  const [entries, setEntries] = useState<TimesheetEntry[]>([])
 
   const engagements = [
     "Smart Attendance System",
@@ -301,6 +145,15 @@ export function TimesheetPage() {
     return dayEntries.reduce((sum, entry) => sum + entry.hours + entry.minutes / 60, 0)
   }
 
+  const getDayTotalsMinutes = (dayFull: string) => {
+    const dayEntries = getCurrentWeekEntries().filter((entry) => entry.date === dayFull)
+    return dayEntries.reduce((sum, e) => sum + e.hours * 60 + e.minutes, 0)
+  }
+
+  const getWeekTotalsMinutes = () => {
+    return getCurrentWeekEntries().reduce((sum, e) => sum + e.hours * 60 + e.minutes, 0)
+  }
+
   // Check if weekends should be enabled (all weekdays filled with 8h each)
   const weekdaysFilled = weekDays
     .filter((day) => !day.isWeekend)
@@ -308,12 +161,13 @@ export function TimesheetPage() {
       return getDayHours(day.full) >= 8
     })
 
-  // Today's date for comparison (August 6, 2025)
-  const today = new Date("2025-09-02")
+  // Today's date for comparison
+  const today = new Date()
 
   const updateWeekDays = (weekString: string) => {
-    // Parse week string like "Jul 28 - Aug 03, 2025"
-    const [startStr] = weekString.split(" - ")
+    // Parse week string like "Jul 28 - Aug 03, 2025" (start is Monday)
+    const [range, yearStr] = weekString.split(", ")
+    const [startStr] = range.split(" - ")
     const [month, day] = startStr.split(" ")
 
     const monthMap: { [key: string]: number } = {
@@ -331,15 +185,10 @@ export function TimesheetPage() {
       Dec: 11,
     }
 
-    const startDate = new Date(2025, monthMap[month], Number.parseInt(day))
+    const year = Number.parseInt(yearStr)
+    const monday = new Date(year, monthMap[month], Number.parseInt(day))
 
-    // Find the Monday of this week
-    const dayOfWeek = startDate.getDay()
-    const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek
-    const monday = new Date(startDate)
-    monday.setDate(startDate.getDate() + mondayOffset)
-
-    const newWeekDays = []
+    const newWeekDays = [] as any[]
     const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
     const fullDayNames = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
     const monthNames = [
@@ -357,6 +206,13 @@ export function TimesheetPage() {
       "December",
     ]
 
+    const toISODate = (date: Date) => {
+      const y = date.getFullYear()
+      const m = (date.getMonth() + 1).toString().padStart(2, "0")
+      const d = date.getDate().toString().padStart(2, "0")
+      return `${y}-${m}-${d}`
+    }
+
     for (let i = 0; i < 7; i++) {
       const currentDate = new Date(monday)
       currentDate.setDate(monday.getDate() + i)
@@ -370,6 +226,7 @@ export function TimesheetPage() {
         full: `${fullDayNames[i]}, ${monthNames[currentDate.getMonth()]} ${currentDate.getDate()}`,
         status: isPastOrToday ? (isWeekend ? "optional" : "filled") : "future",
         isWeekend,
+        iso: toISODate(currentDate),
       })
     }
 
@@ -378,61 +235,378 @@ export function TimesheetPage() {
   }
 
   useEffect(() => {
+    if (!currentWeek) return
     updateWeekDays(currentWeek)
   }, [currentWeek])
 
-  const handleAddEntry = () => {
-    if (newEntry.engagement && newEntry.task) {
-      const entry: TimesheetEntry = {
-        ...newEntry,
-        id: Date.now().toString(),
-        date: selectedDate,
+  // Util: build ISO yyyy-MM-dd
+  const toISODate = (date: Date) => {
+    const y = date.getFullYear()
+    const m = (date.getMonth() + 1).toString().padStart(2, "0")
+    const d = date.getDate().toString().padStart(2, "0")
+    return `${y}-${m}-${d}`
+  }
+
+  // Load week entries from backend
+  const loadWeekEntries = async (monday: Date) => {
+    const friday = new Date(monday)
+    friday.setDate(monday.getDate() + 4)
+
+    try {
+      const res = await fetch(`https://localhost:7080/api/timesheet/GetTSbyWeek`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          userID: 0, // server reads from session
+          startDate: toISODate(monday),
+          endDate: toISODate(friday),
+        }),
+      })
+      if (!res.ok) throw new Error(`${res.status}`)
+      const data: any[] = await res.json()
+
+      // Set the timesheet ID and status for the selected week (use first entry if available)
+      if (data.length > 0) {
+        const firstEntry = data[0]
+        const weekTimesheetId = firstEntry.timesheetID ?? firstEntry.TimesheetID
+        if (weekTimesheetId) {
+          setSelectedWeekTimesheetId(weekTimesheetId)
+          setTimesheetId(weekTimesheetId) // Use this ID for operations on this week
+        }
+        const statusVal = firstEntry.status ?? firstEntry.Status ?? null
+        setTimesheetStatus(typeof statusVal === "number" ? statusVal : null)
       }
-      setEntries([...entries, entry])
-      setNewEntry({
-        engagement: "",
-        task: "",
-        hours: 0,
-        minutes: 0,
-        comments: "",
+
+      const mapped: TimesheetEntry[] = data.map((d) => {
+        const dateObj = new Date(d.date)
+        const weekday = [
+          "Sunday",
+          "Monday",
+          "Tuesday",
+          "Wednesday",
+          "Thursday",
+          "Friday",
+          "Saturday",
+        ][dateObj.getDay()]
+        const monthName = [
+          "January",
+          "February",
+          "March",
+          "April",
+          "May",
+          "June",
+          "July",
+          "August",
+          "September",
+          "October",
+          "November",
+          "December",
+        ][dateObj.getMonth()]
+        const label = `${weekday}, ${monthName} ${dateObj.getDate()}`
+        return {
+          lineID: d.lineID ?? d.LineID ?? 0,
+          id: String(d.lineID ?? d.LineID ?? `${d.engagementID}-${d.taskID}-${d.date}`),
+          engagement: d.engagementName ?? d.EngagementName ?? "",
+          task: d.taskName ?? d.TaskName ?? "",
+          hours: d.hours ?? d.Hours ?? 0,
+          minutes: d.minutes ?? d.Minutes ?? 0,
+          comments: d.comment ?? d.Comment ?? "",
+          date: label,
+        }
       })
+      setEntries(mapped)
+      setIsViewingSpecificWeek(true)
+    } catch (e) {
+      console.error("Failed to load week entries", e)
+      setEntries([])
+    }
+  }
+
+  // Reload data based on current viewing state
+  const reloadCurrentData = async () => {
+    if (isViewingSpecificWeek) {
+      // If viewing a specific week, reload that week's data
+      try {
+        const [range, yearStr] = currentWeek.split(", ")
+        const [startStr] = range.split(" - ")
+        const [monAbbr, dayStr] = startStr.split(" ")
+        const mm: { [k: string]: number } = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 }
+        const monday = new Date(Number.parseInt(yearStr), mm[monAbbr], Number.parseInt(dayStr))
+        await loadWeekEntries(monday)
+      } catch (e) {
+        console.error("Failed to reload specific week", e)
+        await loadCurrentTimesheet()
+      }
+    } else {
+      // If viewing current timesheet, reload that
+      await loadCurrentTimesheet()
+    }
+  }
+
+  // Load current timesheet data and set week label + timesheet ID
+  const loadCurrentTimesheet = async () => {
+    try {
+      const res = await fetch(`https://localhost:7080/api/timesheet/v1`, { credentials: "include" })
+      console.log("timehseett",res)
+      if (!res.ok) throw new Error(`${res.status}`)
+      const payload = await res.json()
+      const data = payload?.data
+      console.log("data : ",data)
+      const lines: any[] = data?.timesheetLines || []
+
+      // set v1 meta for current and rejected summary
+      if (data?.currentWeekStartDate && data?.currentWeekEndDate) {
+        const start = new Date(data.currentWeekStartDate)
+        const end = new Date(data.currentWeekEndDate)
+        const toISO = (d: Date) => `${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2,'0')}-${d.getDate().toString().padStart(2,'0')}`
+        setV1CurrentStartISO(toISO(start))
+        setV1CurrentEndISO(toISO(end))
+      }
+      setRejectedCount(data?.totalRejectedCount ?? 0)
+      setRejectedRanges(Array.isArray(data?.rejectedTimesheetRanges) ? data.rejectedTimesheetRanges : [])
+      
+      if (data?.startDate && data?.endDate) {
+        const start = new Date(data.startDate)
+        const end = new Date(data.endDate)
+        const monthsAbbr = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+        const wk = `${monthsAbbr[start.getMonth()]} ${start.getDate().toString().padStart(2,'0')} - ${monthsAbbr[end.getMonth()]} ${end.getDate().toString().padStart(2,'0')}, ${start.getFullYear()}`
+        setCurrentWeek(wk)
+        updateWeekDays(wk)
+      }
+      
+      if (data?.timesheetID) setTimesheetId(data.timesheetID)
+      // Use status from v1 payload (may be rejected or current pending)
+      if (typeof data?.status === 'number') setTimesheetStatus(data.status)
+      setIsViewingSpecificWeek(false) // Reset to viewing current timesheet
+      
+      const mapped: TimesheetEntry[] = lines.map((d) => {
+        const dateObj = new Date(d.date)
+        const weekday = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"][dateObj.getDay()]
+        const monthName = ["January","February","March","April","May","June","July","August","September","October","November","December"][dateObj.getMonth()]
+        const label = `${weekday}, ${monthName} ${dateObj.getDate()}`
+        return {
+          lineID: d.lineID ?? d.LineID ?? 0,
+          id: String(d.lineID ?? d.LineID ?? `${d.engagementID}-${d.taskID}-${d.date}`),
+          engagement: d.engagementName ?? d.EngagementName ?? "",
+          task: d.taskName ?? d.TaskName ?? "",
+          hours: d.hours ?? d.Hours ?? 0,
+          minutes: d.minutes ?? d.Minutes ?? 0,
+          comments: d.comment ?? d.Comment ?? "",
+          date: label,
+        }
+      })
+      setEntries(mapped)
+    } catch (e) {
+      console.error("Failed to load current timesheet", e)
+      setEntries([])
+    }
+  }
+
+  const handleSaveEntry = async () => {
+    if (newEntry.minutes % 5 !== 0) {
+      setWarnMessage("Minutes must be in multiples of 5 (0,5,10,...,55)")
+      setShowWarnToast(true)
+      setTimeout(()=>setShowWarnToast(false),3000)
+      return
+    }
+    const pickedEng = engagementOptions.find(e => e.title === newEntry.engagement)
+    const pickedTask = taskOptions.find(t => t.taskName === newEntry.task)
+    const day = weekDays.find(d => d.full === selectedDate)
+    if (!pickedEng || !pickedTask || !day) return
+
+    // Compute totals including this new entry
+    const baseMinutes = getDayTotalsMinutes(selectedDate)
+    const newMinutes = (newEntry.hours * 60) + newEntry.minutes
+    const dayTotal = baseMinutes + newMinutes
+    const totalDayHours = Math.floor(dayTotal / 60)
+    const totalDayMinutes = dayTotal % 60
+
+    try {
+      const res = await fetch(`https://localhost:7080/api/timesheet/save`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          lineID: null,
+          timesheetID: timesheetId ?? 0,
+          engagementID: pickedEng.engagementID,
+          taskID: pickedTask.taskID,
+          hours: newEntry.hours,
+          minutes: newEntry.minutes,
+          date: `${day.iso}T00:00:00`,
+          comment: newEntry.comments,
+          totalDayHours,
+          totalDayMinutes,
+          modUser: 0,
+        })
+      })
+      console.log("res data:",res)
+
+      if (!res.ok) throw new Error(`${res.status}`)
+        // Reload data from backend to get the actual lineID
+      await reloadCurrentData()
+      //    // Get the saved entry data from response
+      // const savedData = await res.json()
+      // console.log("Saved entry data:", savedData)
+      
+      // // Extract lineID from response (adjust property name based on your API response)
+      // const returnedLineID = savedData.lineID ?? savedData.LineID ?? savedData.data?.lineID ?? savedData.data?.LineID
+      // // optimistic update
+      // const entry: TimesheetEntry = {
+      //   lineID: returnedLineID,
+      //   ...newEntry,
+      //   id: String(returnedLineID || Date.now()),
+      //   date: selectedDate,
+      // }
+      // setEntries([...entries, entry])
+      setNewEntry({ engagement: "", task: "", hours: 0, minutes: 0, comments: "" })
       setIsAddingEntry(false)
+    } catch (e) {
+      console.error("Failed to save entry", e)
     }
   }
 
-  const handleEditEntry = (entry: TimesheetEntry) => {
-    setNewEntry({
-      engagement: entry.engagement,
-      task: entry.task,
-      hours: entry.hours,
-      minutes: entry.minutes,
-      comments: entry.comments,
-    })
-    setEditingEntry(entry.id)
+  const handleAddEntry = () => {
+    if (editingEntry) { 
+      setWarnMessage("Add/Edit cannot be done at the same time")
+      setShowWarnToast(true)
+      setTimeout(()=>setShowWarnToast(false),3000)
+      return 
+    }
+    if (newEntry.engagement && newEntry.task) {
+      handleSaveEntry()
+    }
   }
 
-  const handleUpdateEntry = () => {
-    if (editingEntry && newEntry.engagement && newEntry.task) {
-      setEntries(entries.map((entry) => (entry.id === editingEntry ? { ...entry, ...newEntry } : entry)))
-      setNewEntry({
-        engagement: "",
-        task: "",
-        hours: 0,
-        minutes: 0,
-        comments: "",
+  // Load engagements for add or inline edit based on the row/day being edited/added
+  useEffect(() => {
+    if (!isAddingEntry && !editingEntry) return
+    // Determine the date context: when editing, use that entry's date; otherwise use selectedDate
+    const targetDateLabel = editingEntry
+      ? (entries.find(e => e.id === editingEntry)?.date ?? selectedDate)
+      : selectedDate
+    const day = weekDays.find((d) => d.full === targetDateLabel)
+    if (!day) return
+    const iso = day.iso
+
+    fetch(`https://localhost:7080/api/Engagement/GetEngagementsByUserAndDate/${iso}`, { credentials: "include" })
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then((list: any[]) => {
+        setEngagementOptions(list.map(x => ({ engagementID: x.engagementID, title: x.title ?? String(x.engagementID) })))
       })
+      .catch(() => setEngagementOptions([]))
+  }, [isAddingEntry, editingEntry])
+
+ // When an engagement is picked (for add OR edit), load its tasks
+  useEffect(() => {
+      const selectedEngagementTitle = editingEntry ? editEntryDraft.engagement : newEntry.engagement
+      const picked = engagementOptions.find(e => e.title === selectedEngagementTitle)
+      if (!picked) { setTaskOptions([]); return }
+      fetch(`https://localhost:7080/api/Engagement/${picked.engagementID}`, { credentials: "include" })
+       .then(r => r.ok ? r.json() : Promise.reject(r.status))
+        .then((list: any[]) => setTaskOptions(list.map(t => ({ taskID: t.taskID, taskName: t.taskName ?? String(t.taskID) }))))
+        .catch(() => setTaskOptions([]))
+    }, [newEntry.engagement, editEntryDraft.engagement, editingEntry])
+
+    const handleEditEntry = (entry: TimesheetEntry) => {
+          if (isAddingEntry) { 
+            setWarnMessage("Add/Edit cannot be done at the same time")
+            setShowWarnToast(true)
+            setTimeout(()=>setShowWarnToast(false),3000)
+            return 
+          }
+          setEditEntryDraft({
+            engagement: entry.engagement,
+            task: entry.task,
+            hours: entry.hours,
+            minutes: entry.minutes,
+            comments: entry.comments,
+          })
+    setEditingEntry(entry.id)
+    setOriginalEntry(entry)
+    // Do not open the top add row; we will inline-edit the selected row
+  }
+
+  const handleUpdateEntry = async () => {
+    if (!editingEntry || !editEntryDraft.engagement || !editEntryDraft.task) return
+    if (editEntryDraft.minutes % 5 !== 0) {
+      setWarnMessage("Minutes must be in multiples of 5 (0,5,10,...,55)")
+      setShowWarnToast(true)
+      setTimeout(()=>setShowWarnToast(false),3000)
+      return
+    }
+
+    // Find the current entry from the entries array to get the most up-to-date lineID
+    const currentEntry = entries.find(e => e.id === editingEntry)
+    if (!currentEntry) return
+
+    const pickedEng = engagementOptions.find(e => e.title === editEntryDraft.engagement)
+    const pickedTask = taskOptions.find(t => t.taskName === editEntryDraft.task)
+    const day = weekDays.find(d => d.full === currentEntry.date)
+    if (!pickedEng || !pickedTask || !day) return
+
+    // Compute totals including this updated entry
+    const baseMinutes = getDayTotalsMinutes(currentEntry.date) - (currentEntry.hours * 60 + currentEntry.minutes)
+    const newMinutes = (editEntryDraft.hours * 60) + editEntryDraft.minutes
+    const dayTotal = baseMinutes + newMinutes
+    const totalDayHours = Math.floor(dayTotal / 60)
+    const totalDayMinutes = dayTotal % 60
+
+    try {
+      const res = await fetch(`https://localhost:7080/api/timesheet/save`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          lineID: currentEntry.lineID,// Use the current entry's lineID for updates
+          timesheetID: timesheetId ?? 0,
+          engagementID: pickedEng.engagementID,
+          taskID: pickedTask.taskID,
+          hours: editEntryDraft.hours,
+          minutes: editEntryDraft.minutes,
+          date: `${day.iso}T00:00:00`,
+          comment: editEntryDraft.comments,
+          totalDayHours,
+          totalDayMinutes,
+          modUser: 0,
+        })
+      })
+
+      if (!res.ok) throw new Error(`${res.status}`)
+      
+      // Reload current data to get updated data
+      await reloadCurrentData()
+      setEditEntryDraft({ engagement: "", task: "", hours: 0, minutes: 0, comments: "" })
       setEditingEntry(null)
+      setOriginalEntry(null)
+      // Do not touch add row state when finishing edit
+    } catch (e) {
+      console.error("Failed to update entry", e)
     }
   }
 
-  const handleDeleteEntry = (id: string) => {
-    setEntries(entries.filter((entry) => entry.id !== id))
+  const handleDeleteEntry = async (id: string) => {
+    try {
+      const res = await fetch(`https://localhost:7080/api/timesheet/${id}`, {
+        method: "DELETE",
+        credentials: "include"
+      })
+      
+      if (!res.ok) throw new Error(`${res.status}`)
+      
+      // Reload current data to get updated data
+      await reloadCurrentData()
+    } catch (e) {
+      console.error("Failed to delete entry", e)
+    }
   }
 
   const canFillDay = (day: any) => {
     if (day.status === "future") return false
     if (day.isWeekend) {
-      return weekdaysFilled
+      // Weekends are selectable if weekdays are complete OR if there are already entries on that weekend day
+      return weekdaysFilled || getDayHours(day.full) > 0
     }
     return true
   }
@@ -447,19 +621,65 @@ export function TimesheetPage() {
     if (selectedDate === day.full) return "bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-300"
 
     const dayHours = getDayHours(day.full)
-    if (dayHours >= 8)
+    if (!day.isWeekend && dayHours >= 8)
+      return "bg-green-50 text-green-800 hover:bg-green-100 dark:bg-green-900/20 dark:text-green-300 dark:hover:bg-green-900/40"
+    // Weekend: green if any entries present
+    if (day.isWeekend && dayHours > 0)
       return "bg-green-50 text-green-800 hover:bg-green-100 dark:bg-green-900/20 dark:text-green-300 dark:hover:bg-green-900/40"
     if (day.status === "future")
       return "bg-gray-100 text-gray-400 cursor-not-allowed dark:bg-gray-700 dark:text-gray-500"
-    if (day.isWeekend && !weekdaysFilled)
-      return "bg-gray-100 text-gray-400 cursor-not-allowed dark:bg-gray-700 dark:text-gray-500"
+    if (day.isWeekend)
+      return "bg-gray-100 text-gray-400 dark:bg-gray-700 dark:text-gray-500"
 
     return "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
   }
 
   const handleSubmitTimesheet = () => {
-    if (weekTotalHours >= 40) {
-      alert("Timesheet submitted successfully!")
+    // Validate min daily hours Mon-Fri
+    const anyWeekdayUnderMin = weekDays
+      .filter((d) => !d.isWeekend)
+      .some((d) => getDayHours(d.full) < 8)
+    if (anyWeekdayUnderMin) {
+      setWarnMessage("Please fill min daily hours.")
+      setShowWarnToast(true)
+      setTimeout(() => setShowWarnToast(false), 3000)
+      return
+    }
+    setIsSubmitOpen(true)
+  }
+
+  const doSubmitTimesheet = async () => {
+    try {
+      const totalWeekMin = getWeekTotalsMinutes()
+      const hoursTotal = Math.floor(totalWeekMin / 60)
+      const minutesTotal = totalWeekMin % 60
+      const res = await fetch(`https://localhost:7080/api/timesheet/Submit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          timesheetID: timesheetId ?? 0,
+          userID: 0,
+          hoursTotal,
+          minutesTotal,
+          submissionComment: submitComment,
+        })
+      })
+      if (!res.ok) throw new Error(`${res.status}`)
+      
+      setIsSubmitOpen(false)
+      setSubmitComment("")
+      setShowSuccessToast(true)
+      setTimeout(() => setShowSuccessToast(false), 3000)
+      
+      // Wait for backend to process submission before loading next week
+      await new Promise(r => setTimeout(r, 1000))
+      setIsViewingSpecificWeek(false) // Reset to viewing current timesheet after submission
+      await loadCurrentTimesheet()
+      //await reloadCurrentData()
+      // Removed--- Follow Ajax pattern: Get dropdown list first by ddr
+    } catch (e) {
+      console.error("Failed to submit timesheet", e)
     }
   }
 
@@ -472,6 +692,7 @@ export function TimesheetPage() {
       if (dayData) {
         bulkEntries.forEach((bulkEntry) => {
           newEntries.push({
+            lineID: 0,
             id: `${Date.now()}-${Math.random()}`,
             engagement: bulkEntry.engagement,
             task: bulkEntry.task,
@@ -487,25 +708,54 @@ export function TimesheetPage() {
     setEntries([...entries, ...newEntries])
   }
 
+  // Initial load: fetch current timesheet data
+  useEffect(() => {
+    loadCurrentTimesheet()
+  }, [])
+
   return (
     <div className={`p-3 sm:p-6 space-y-4 sm:space-y-6 text-gray-900 bg-gray-50`}>
 
 
       {/* Nags Section */}
       <div className="space-y-2">
-        {showNag1 && (
+        {showNag1 && rejectedCount > 0 && (
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between bg-red-100 border border-red-300 rounded-lg p-3 dark:bg-red-900/20 dark:border-red-700 gap-2">
-            <span className="text-sm text-red-800 dark:text-red-300 pr-2">
-              Your Timesheet for 4th Week of August has been rejected.
-            </span>
+            <div className="text-sm text-red-800 dark:text-red-300 pr-2">
+              {rejectedCount > 0 ? (
+                <span>
+                  You have {rejectedCount} rejected timesheets:
+                  {rejectedRanges.map((r, idx) => {
+                    const s = new Date(r.startDate)
+                    const e = new Date(r.endDate)
+                    const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+                    const label = `${months[s.getMonth()]} '${String(s.getFullYear()).slice(-2)} (${s.getDate()}-${e.getDate()})`
+                    return (
+                      <button
+                        key={r.timesheetID}
+                        className="underline text-blue-700 hover:text-blue-900 ml-1"
+                        onClick={async () => {
+                          try {
+                            const monday = new Date(r.startDate)
+                            const friday = new Date(r.endDate)
+                            await loadWeekEntries(monday)
+                            const monthsAbbr = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+                            const wk = `${monthsAbbr[monday.getMonth()]} ${monday.getDate().toString().padStart(2,'0')} - ${monthsAbbr[friday.getMonth()]} ${friday.getDate().toString().padStart(2,'0')}, ${monday.getFullYear()}`
+                            setCurrentWeek(wk)
+                            updateWeekDays(wk)
+                          } catch {}
+                        }}
+                      >
+                        {label}{idx < rejectedRanges.length - 1 ? ',' : ''}
+                      </button>
+                    )
+                  })}
+                </span>
+              ) : (
+                <span>No rejected timesheets.</span>
+              )}
+            </div>
             <div className="flex items-center gap-2 flex-shrink-0">
-              <Button
-                size="sm"
-                variant="outline"
-                className="dark:bg-gray-700 dark:text-gray-100 dark:border-gray-600 bg-transparent text-xs sm:text-sm"
-              >
-                View Details
-              </Button>
               <X
                 className="h-4 w-4 cursor-pointer text-gray-500 dark:text-gray-400"
                 onClick={() => setShowNag1(false)}
@@ -517,13 +767,13 @@ export function TimesheetPage() {
         {showNag2 && (
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between bg-yellow-100 border border-yellow-300 rounded-lg p-3 dark:bg-yellow-900/20 dark:border-yellow-700 gap-2">
             <span className="text-sm text-yellow-800 dark:text-yellow-300 pr-2">
-              Your Timesheet for 2nd Week of August has been submitted and it's been a while your manager reviewed it.
+              Notify Manger For Pending Timesheet Approval Feature. Coming Soon........
             </span>
             <div className="flex items-center gap-2 flex-shrink-0">
               <Button
                 variant="outline"
                 size="sm"
-                onClick={handleNotify}
+                //onClick={handleNotify}
                 className="dark:bg-gray-700 dark:text-gray-100 dark:border-gray-600 bg-transparent text-xs sm:text-sm"
               >
                 Notify
@@ -608,6 +858,49 @@ export function TimesheetPage() {
                   {currentWeek}
                   <Calendar className="w-4 h-4 ml-2" />
                 </Button>
+                {/* Go To Current TS Button */}
+                <Button 
+                  variant="outline"
+                  disabled={(() => {
+                    if (!v1CurrentStartISO || !v1CurrentEndISO) return false
+                    // Check if currentWeek label matches v1 current range
+                    // We compare by computing the monday of currentWeekDays and last day (Fri)
+                    try {
+                      const [range, yearStr] = currentWeek.split(", ")
+                      const [startStr, endStr] = range.split(" - ")
+                      const monthsAbbr: Record<string, number> = { Jan:0, Feb:1, Mar:2, Apr:3, May:4, Jun:5, Jul:6, Aug:7, Sep:8, Oct:9, Nov:10, Dec:11 }
+                      const parsePart = (p: string) => { const [m, d] = p.split(" "); return { m: monthsAbbr[m], d: parseInt(d,10) } }
+                      const sPart = parsePart(startStr)
+                      const ePart = parsePart(endStr)
+                      const yr = parseInt(yearStr,10)
+                      const sDate = new Date(yr, sPart.m, sPart.d)
+                      const eDate = new Date(yr, ePart.m, ePart.d)
+                      const toISO = (d: Date) => `${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2,'0')}-${d.getDate().toString().padStart(2,'0')}`
+                      return toISO(sDate) === v1CurrentStartISO && toISO(eDate) === v1CurrentEndISO
+                    } catch { return false }
+                  })()}
+                  className="font-medium bg-white dark:bg-gray-700 dark:text-gray-100 dark:border-gray-600 hover:dark:bg-gray-600 text-sm"
+                  onClick={async () => {
+                    try {
+                      if (!v1CurrentStartISO || !v1CurrentEndISO) return
+                      const monday = new Date(v1CurrentStartISO)
+                      const friday = new Date(v1CurrentEndISO)
+                      // Use GetTSbyWeek as requested
+                      await loadWeekEntries(monday)
+                      const monthsAbbr = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+                      const wk = `${monthsAbbr[monday.getMonth()]} ${monday.getDate().toString().padStart(2,'0')} - ${monthsAbbr[friday.getMonth()]} ${friday.getDate().toString().padStart(2,'0')}, ${monday.getFullYear()}`
+                      setCurrentWeek(wk)
+                      updateWeekDays(wk)
+                    } catch (e) {
+                      setWarnMessage("Failed to load current timesheet")
+                      setShowWarnToast(true)
+                      setTimeout(()=>setShowWarnToast(false),3000)
+                    }
+                  }}
+                >
+                  <Clock className="w-4 h-4 mr-2" />
+                  Go To Current TS
+                </Button>
               </div>
             </div>
 
@@ -681,7 +974,8 @@ export function TimesheetPage() {
               <Button
                 variant="outline"
                 onClick={() => setIsBulkModalOpen(true)}
-                className="bg-white dark:bg-gray-700 dark:text-gray-100 dark:border-gray-600 hover:dark:bg-gray-600 text-sm"
+                disabled
+                className="bg-white dark:bg-gray-700 dark:text-gray-100 dark:border-gray-600 hover:dark:bg-gray-600 text-sm opacity-50 cursor-not-allowed"
               >
                 <Plus className="w-4 h-4 mr-2" />
                 Bulk Entry
@@ -706,8 +1000,8 @@ export function TimesheetPage() {
               </div>
 
 
-              {/* Add/Edit Entry Form */}
-              {(isAddingEntry || editingEntry) && (
+              {/* Add Entry Form (top row) */}
+              {isAddingEntry && (
                 <div
                   className={`border-b rounded-lg p-3 border-gray-200 bg-blue-50 min-w-[820px]`}
                 >
@@ -716,19 +1010,19 @@ export function TimesheetPage() {
                     <div className="col-span-3">
                       <Select
                         value={newEntry.engagement}
-                        onValueChange={(value) => setNewEntry({ ...newEntry, engagement: value })}
+                        onValueChange={(value) => setNewEntry({ ...newEntry, engagement: value, task: "" })}
                       >
                         <SelectTrigger className="bg-white dark:bg-gray-800 dark:text-gray-100 dark:border-gray-600">
                           <SelectValue placeholder="Select Engagement" />
                         </SelectTrigger>
-                        <SelectContent className="bg-white dark:bg-gray-800 dark:text-gray-100 dark:border-gray-700">
-                          {engagements.map((engagement) => (
+                        <SelectContent className="bg-white dark:bg-gray-800 dark:text-gray-100 dark:border-gray-700 max-h-60 overflow-y-auto">
+                          {engagementOptions.map((e) => (
                             <SelectItem
-                              key={engagement}
-                              value={engagement}
+                              key={e.engagementID}
+                              value={e.title}
                               className="hover:bg-gray-100 dark:hover:bg-gray-700"
                             >
-                              {engagement}
+                              {e.title}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -739,10 +1033,10 @@ export function TimesheetPage() {
                         <SelectTrigger className="bg-white dark:bg-gray-800 dark:text-gray-100 dark:border-gray-600">
                           <SelectValue placeholder="Select Task" />
                         </SelectTrigger>
-                        <SelectContent className="bg-white dark:bg-gray-800 dark:text-gray-100 dark:border-gray-700">
-                          {tasks.map((task) => (
-                            <SelectItem key={task} value={task} className="hover:bg-gray-100 dark:hover:bg-gray-700">
-                              {task}
+                        <SelectContent className="bg-white dark:bg-gray-800 dark:text-gray-100 dark:border-gray-700 max-h-60 overflow-y-auto">
+                          {taskOptions.map((t) => (
+                            <SelectItem key={t.taskID} value={t.taskName} className="hover:bg-gray-100 dark:hover:bg-gray-700">
+                              {t.taskName}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -764,6 +1058,7 @@ export function TimesheetPage() {
                         type="number"
                         min="0"
                         max="59"
+                        step="5"
                         placeholder="0"
                         value={newEntry.minutes === 0 ? "" : newEntry.minutes}
                         onChange={(e) => setNewEntry({ ...newEntry, minutes: Number.parseInt(e.target.value) || 0 })}
@@ -781,10 +1076,10 @@ export function TimesheetPage() {
                     <div className="col-span-2 flex gap-2">
                       <Button
                         size="sm"
-                        onClick={editingEntry ? handleUpdateEntry : handleAddEntry}
+                        onClick={handleAddEntry}
                         className="bg-green-600 hover:bg-green-700"
                       >
-                        {editingEntry ? "Update" : "Save"}
+                        Save
                       </Button>
                       <Button
                         size="sm"
@@ -792,6 +1087,7 @@ export function TimesheetPage() {
                         onClick={() => {
                           setIsAddingEntry(false)
                           setEditingEntry(null)
+                          setOriginalEntry(null)
                           setNewEntry({
                             engagement: "",
                             task: "",
@@ -813,18 +1109,18 @@ export function TimesheetPage() {
                       <div className="w-48">
                         <Select
                           value={newEntry.engagement}
-                          onValueChange={(value) => setNewEntry({ ...newEntry, engagement: value })}
+                          onValueChange={(value) => setNewEntry({ ...newEntry, engagement: value, task: "" })}
                         >
                           <SelectTrigger className="bg-white dark:bg-gray-800 dark:text-gray-100 dark:border-gray-600">
                             <SelectValue placeholder="Select Engagement" />
                           </SelectTrigger>
-                          <SelectContent className="bg-white dark:bg-gray-800 dark:text-gray-100 dark:border-gray-700">
-                            {engagements.map((engagement) => (
+                          <SelectContent className="bg-white dark:bg-gray-800 dark:text-gray-100 dark:border-gray-700 max-h-60 overflow-y-auto">
+                            {engagementOptions.map((e) => (
                               <SelectItem
-                                key={engagement}
-                                value={engagement}
+                                key={e.engagementID}
+                                value={e.title}
                               >
-                                {engagement}
+                                {e.title}
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -835,10 +1131,10 @@ export function TimesheetPage() {
                           <SelectTrigger className="bg-white dark:bg-gray-800 dark:text-gray-100 dark:border-gray-600">
                             <SelectValue placeholder="Select Task" />
                           </SelectTrigger>
-                          <SelectContent className="bg-white dark:bg-gray-800 dark:text-gray-100 dark:border-gray-700">
-                            {tasks.map((task) => (
-                              <SelectItem key={task} value={task}>
-                                {task}
+                          <SelectContent className="bg-white dark:bg-gray-800 dark:text-gray-100 dark:border-gray-700 max-h-60 overflow-y-auto">
+                            {taskOptions.map((t) => (
+                              <SelectItem key={t.taskID} value={t.taskName}>
+                                {t.taskName}
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -860,6 +1156,7 @@ export function TimesheetPage() {
                             type="number"
                             min="0"
                             max="59"
+                            step="5"
                             placeholder="0"
                             value={newEntry.minutes === 0 ? "" : newEntry.minutes}
                             onChange={(e) => setNewEntry({ ...newEntry, minutes: Number.parseInt(e.target.value) || 0 })}
@@ -877,19 +1174,20 @@ export function TimesheetPage() {
                       </div>
 
                       <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          onClick={editingEntry ? handleUpdateEntry : handleAddEntry}
-                          className="bg-green-600 hover:bg-green-700 flex-1"
-                        >
-                          {editingEntry ? "Update" : "Save"}
-                        </Button>
+                      <Button
+                        size="sm"
+                        onClick={handleAddEntry}
+                        className="bg-green-600 hover:bg-green-700 flex-1"
+                      >
+                        Save
+                      </Button>
                         <Button
                           size="sm"
                           variant="outline"
                           onClick={() => {
                             setIsAddingEntry(false)
                             setEditingEntry(null)
+                            setOriginalEntry(null)
                             setNewEntry({
                               engagement: "",
                               task: "",
@@ -923,35 +1221,113 @@ export function TimesheetPage() {
                       key={entry.id}
                       className={`grid grid-cols-12 gap-4 py-3 border-b last:border-b-0 border-gray-100`}
                     >
-                      <div className={`col-span-3 font-medium text-gray-800`}>
-                        {entry.engagement}
-                      </div>
-                      <div className={`col-span-2 text-gray-600`}>{entry.task}</div>
-                      <div className="col-span-1 text-center font-medium text-gray-900 dark:text-gray-100">
-                        {entry.hours}
-                      </div>
-                      <div className="col-span-1 text-center font-medium text-gray-900 dark:text-gray-100">
-                        {entry.minutes.toString().padStart(2, "0")}
-                      </div>
-                      <div className={`col-span-3 text-gray-600`}>{entry.comments}</div>
-                      <div className="col-span-2 flex gap-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleEditEntry(entry)}
-                          className="text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100 dark:hover:bg-gray-700"
-                        >
-                          <Edit className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleDeleteEntry(entry.id)}
-                          className="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 dark:hover:bg-gray-700"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </div>
+                      {editingEntry === entry.id ? (
+                        <>
+                          <div className="col-span-3">
+                            <Select
+                               value={editEntryDraft.engagement}
+                              onValueChange={(value) => setEditEntryDraft({ ...editEntryDraft, engagement: value, task: "" })}
+                            >
+                              <SelectTrigger className="bg-white dark:bg-gray-800 dark:text-gray-100 dark:border-gray-600">
+                                <SelectValue placeholder="Select Engagement" />
+                              </SelectTrigger>
+                              <SelectContent className="bg-white dark:bg-gray-800 dark:text-gray-100 dark:border-gray-700 max-h-60 overflow-y-auto">
+                                {engagementOptions.map((e) => (
+                                  <SelectItem key={e.engagementID} value={e.title} className="hover:bg-gray-100 dark:hover:bg-gray-700">
+                                    {e.title}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="col-span-2">
+                          <Select value={editEntryDraft.task} onValueChange={(value) => setEditEntryDraft({ ...editEntryDraft, task: value })}>
+                              <SelectTrigger className="bg-white dark:bg-gray-800 dark:text-gray-100 dark:border-gray-600">
+                                <SelectValue placeholder="Select Task" />
+                              </SelectTrigger>
+                              <SelectContent className="bg-white dark:bg-gray-800 dark:text-gray-100 dark:border-gray-700 max-h-60 overflow-y-auto">
+                                {taskOptions.map((t) => (
+                                  <SelectItem key={t.taskID} value={t.taskName} className="hover:bg-gray-100 dark:hover:bg-gray-700">
+                                    {t.taskName}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="col-span-1">
+                            <Input
+                              type="number"
+                              min="0"
+                              max="24"
+                              placeholder="0"
+                              value={editEntryDraft.hours === 0 ? "" : editEntryDraft.hours}
+                              onChange={(e) => setEditEntryDraft({ ...editEntryDraft, hours: Number.parseInt(e.target.value) || 0 })}
+                              className="bg-white dark:bg-gray-800 dark:text-gray-100 dark:border-gray-600"
+                            />
+                          </div>
+                          <div className="col-span-1">
+                            <Input
+                              type="number"
+                              min="0"
+                              max="59"
+                              step="5"
+                              placeholder="0"
+                              value={editEntryDraft.minutes === 0 ? "" : editEntryDraft.minutes}
+                              onChange={(e) => setEditEntryDraft({ ...editEntryDraft, minutes: Number.parseInt(e.target.value) || 0 })}
+                              className="bg-white dark:bg-gray-800 dark:text-gray-100 dark:border-gray-600"
+                            />
+                          </div>
+                          <div className="col-span-3">
+                            <Textarea
+                              placeholder="Add comments..."
+                              value={editEntryDraft.comments}
+                              onChange={(e) => setEditEntryDraft({ ...editEntryDraft, comments: e.target.value })}
+                              className="min-h-[40px] bg-white dark:bg-gray-800 dark:text-gray-100 dark:border-gray-600"
+                            />
+                          </div>
+                          <div className="col-span-2 flex gap-2">
+                            <Button size="sm" onClick={handleUpdateEntry} className="bg-green-600 hover:bg-green-700">Update</Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                setEditingEntry(null)
+                                setOriginalEntry(null)
+                                setEditEntryDraft({ engagement: "", task: "", hours: 0, minutes: 0, comments: "" })
+                              }}
+                              className="bg-white dark:bg-gray-700 dark:text-gray-100 dark:border-gray-600 hover:dark:bg-gray-600"
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className={`col-span-3 font-medium text-gray-800`}>{entry.engagement}</div>
+                          <div className={`col-span-2 text-gray-600`}>{entry.task}</div>
+                          <div className="col-span-1 text-center font-medium text-gray-900 dark:text-gray-100">{entry.hours}</div>
+                          <div className="col-span-1 text-center font-medium text-gray-900 dark:text-gray-100">{entry.minutes.toString().padStart(2, "0")}</div>
+                          <div className={`col-span-3 text-gray-600`}>{entry.comments}</div>
+                          <div className="col-span-2 flex gap-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleEditEntry(entry)}
+                              className="text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100 dark:hover:bg-gray-700"
+                            >
+                              <Edit className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDeleteEntry(entry.id)}
+                              className="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 dark:hover:bg-gray-700"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -967,9 +1343,36 @@ export function TimesheetPage() {
                   Weekly Total: <strong>{weekTotalHours.toFixed(1)}h</strong> / 40h required
                 </span>
               </div>
+            {/* Right: Buttons */}
+              <div className="flex items-center space-x-3">
+              <Button
+                variant="outline"
+                disabled={timesheetStatus === 1}
+                onClick={async () => {
+                  if (!timesheetId) { setCommentsData([]); setIsCommentsOpen(true); return }
+                  try {
+                    const res = await fetch(`https://localhost:7080/api/timesheet/getvptimesheetcomments?timesheetid=${timesheetId}`, { credentials: "include" })
+                    if (res.ok) {
+                      const list = await res.json()
+                      setCommentsData(Array.isArray(list) ? list : [])
+                    } else {
+                      setCommentsData([])
+                    }
+                  } catch {
+                    setCommentsData([])
+                  }
+                  setIsCommentsOpen(true)
+                }}
+              >
+                <MessageSquare className="w-4 h-4 mr-2" />
+                Comments for TS
+              </Button>
               <Button
                 onClick={handleSubmitTimesheet}
-                disabled={weekTotalHours < 40}
+                disabled={
+                  weekTotalHours < 40 ||
+                  (isViewingSpecificWeek && (timesheetStatus === 2 || timesheetStatus === 3))
+                }
                 className={`${weekTotalHours >= 40
                   ? "bg-green-600 hover:bg-green-700"
                   : "bg-gray-400 cursor-not-allowed dark:bg-gray-600 dark:text-gray-400"
@@ -978,10 +1381,51 @@ export function TimesheetPage() {
                 <Send className="w-4 h-4 mr-2" />
                 Submit Timesheet
               </Button>
+              </div>
             </div>
           </div>
         </CardContent>
       </Card>
+
+      {/* Submit confirmation modal */}
+      <Dialog open={isSubmitOpen} onOpenChange={setIsSubmitOpen}>
+        <DialogContent className={`max-w-sm bg-white`}>
+          <DialogHeader>
+            <DialogTitle className={'text-gray-900'}>Submit Confirmation</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-gray-700">Are you sure you want to submit?</p>
+            <div>
+              <label className="block text-sm text-gray-600 mb-1">Comments</label>
+              <Textarea value={submitComment} onChange={(e) => setSubmitComment(e.target.value)} placeholder="Optional comments" />
+            </div>
+            <div className="flex gap-2 pt-2">
+              <Button variant="outline" onClick={() => setIsSubmitOpen(false)} className="flex-1">Cancel</Button>
+              <Button onClick={doSubmitTimesheet} className="flex-1 bg-blue-600 hover:bg-blue-700">Submit</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Success Toast */}
+        {(showSuccessToast || showWarnToast) && (
+        <div
+          style={{
+            position: "fixed",
+            top: "20px",
+            right: "20px",
+            backgroundColor: "white",
+            color: showWarnToast ? "#92400e" : "black",
+            padding: "12px 20px",
+            borderRadius: "8px",
+            boxShadow: "0px 4px 8px rgba(0,0,0,0.2)",
+            zIndex: 1000,
+            border: showWarnToast ? "2px solid #fbbf24" : "2px solid #10b981",
+          }}
+        >
+          {showWarnToast ? warnMessage : "Timesheet Submitted Successfully"}
+        </div>
+      )}
 
       {/* Modals */}
       <BulkEntryModal
@@ -994,10 +1438,41 @@ export function TimesheetPage() {
         isOpen={isWeekSelectorOpen}
         onClose={() => setIsWeekSelectorOpen(false)}
         currentWeek={currentWeek}
+        rejectedRanges={rejectedRanges}
         onWeekSelect={(week) => {
           setCurrentWeek(week)
+          // derive Monday from label
+          try {
+            const [range, yearStr] = week.split(", ")
+            const [startStr] = range.split(" - ")
+            const [monAbbr, dayStr] = startStr.split(" ")
+            const mm: { [k: string]: number } = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 }
+            const monday = new Date(Number.parseInt(yearStr), mm[monAbbr], Number.parseInt(dayStr))
+            loadWeekEntries(monday)
+          } catch (e) {
+            console.error("Failed to parse week label", e)
+          }
           setIsWeekSelectorOpen(false)
         }}
+      />
+
+      {/* Comments Modal */}
+      <CommentsModalEmp
+        isOpen={isCommentsOpen}
+        onClose={() => setIsCommentsOpen(false)}
+        title={`Timesheet #${timesheetId ?? ''}`}
+        comments={
+          commentsData.map((c: any, idx: number) => ({
+            id: idx + 1,
+            user: {
+              name: c.commentByUser ?? "",
+              initials: (c.commentByUser?.split(' ').map((p: string) => p[0]).join('') ?? 'U').slice(0,2).toUpperCase(),
+            },
+            action: c.commentTypeText ?? "",
+            timestamp: new Date(c.commentDate).toLocaleString(),
+            commentText: c.commentText && c.commentText.trim().length > 0 ? c.commentText : undefined,
+          }))
+        }
       />
     </div>
   )

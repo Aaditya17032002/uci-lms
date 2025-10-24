@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
+import axios from "axios"
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card"
 import {
   Table,
@@ -13,129 +14,121 @@ import {
 import { Button } from "../../ui/button"
 import { Badge } from "../../ui/badge"
 import { Pagination } from "../../common/pagination"
-import { Eye, Pencil, Ban, BellRing } from 'lucide-react'
+import { Eye, Pencil, Ban, BellRing } from "lucide-react"
 import { LeaveReviewModalEmp } from "../../modals/leave-review-modal-emp"
 import { CancelLeaveConfirmationModal } from "../../modals/cancel-leave-confirmation-modal"
-import { NotificationPopup } from "../../common/notification-popup" // Import the new component
+import { NotificationPopup } from "../../common/notification-popup"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../../ui/dialog";
+import { AddLeaveForm } from "./add-leave-form";
 
-interface LeaveRecord {
-  id: number
-  type: string
-  startDate: string
-  endDate: string
-  days: number
-  reason: string
-  status: "approved" | "pending_manager_approval" | "pending_hr_approval" | "submitted" | "cancelled" | "rejected"
-  appliedDate: string
-  managerApproval?: { status: string; date?: string; comment?: string }
-  hrApproval?: { status: string; date?: string; comment?: string }
+
+interface LeaveDayDetail {
+  date: string; // YYYY-MM-DD
+  type: "Full Day" | "First-Half" | "Second-Half";
+}
+const formatDateToYMD = (date: Date | string) => {
+  const d = new Date(date); // convert string → Date if needed
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+function generateLeaveDayDetails(start: string, end: string, totalDays: number): LeaveDayDetail[] {
+  const startDate = new Date(start);
+  const endDate = new Date(end);
+
+  const daysArray: LeaveDayDetail[] = [];
+  let current = new Date(startDate);
+
+  while (current <= endDate) {
+    const dayType: LeaveDayDetail["type"] =
+      totalDays % 1 !== 0 ? (current.getTime() === startDate.getTime() ? "First-Half" : "Second-Half") : "Full Day";
+
+    if (current.getDay() !== 0 && current.getDay() !== 6) { // skip weekends
+      
+
+daysArray.push({
+  date: formatDateToYMD(current), // ✅ local date, no UTC conversion
+  type: dayType,
+});
+    }
+
+    current.setDate(current.getDate() + 1);
+  }
+
+  return daysArray;
 }
 
-const mockLeaveHistory: LeaveRecord[] = [
-  {
-    id: 1,
-    type: "Casual Leave",
-    startDate: "2024-01-15",
-    endDate: "2024-01-16",
-    days: 2,
-    reason: "Personal work",
-    status: "approved",
-    appliedDate: "2024-01-10",
-    managerApproval: { status: "Approved", date: "2024-01-12" },
-    hrApproval: { status: "Approved", date: "2024-01-13" },
-  },
-  {
-    id: 2,
-    type: "Sick Leave",
-    startDate: "2024-01-08",
-    endDate: "2024-01-08",
-    days: 1,
-    reason: "Fever",
-    status: "approved",
-    appliedDate: "2024-01-08",
-    managerApproval: { status: "Approved", date: "2024-01-08" },
-    hrApproval: { status: "Approved", date: "2024-01-09" },
-  },
-  {
-    id: 3,
-    type: "Casual Leave",
-    startDate: "2024-01-25",
-    endDate: "2024-01-26",
-    days: 2,
-    reason: "Family function",
-    status: "pending_manager_approval",
-    appliedDate: "2024-01-20",
-    managerApproval: { status: "Pending" },
-    hrApproval: { status: "Pending" },
-  },
-  {
-    id: 4,
-    type: "Sick Leave",
-    startDate: "2024-02-05",
-    endDate: "2024-02-06",
-    days: 2,
-    reason: "Medical checkup",
-    status: "pending_hr_approval",
-    appliedDate: "2024-02-01",
-    managerApproval: { status: "Approved", date: "2024-02-02" },
-    hrApproval: { status: "Pending" },
-  },
-  {
-    id: 5,
-    type: "Casual Leave",
-    startDate: "2024-02-15",
-    endDate: "2024-02-15",
-    days: 1,
-    reason: "Personal work",
-    status: "rejected",
-    appliedDate: "2024-02-10",
-    managerApproval: { status: "Rejected", date: "2024-02-11" },
-    hrApproval: { status: "N/A" },
-  },
-  {
-    id: 6,
-    type: "Work From Home",
-    startDate: "2024-03-01",
-    endDate: "2024-03-01",
-    days: 1,
-    reason: "Remote work setup",
-    status: "approved",
-    appliedDate: "2024-02-28",
-    managerApproval: { status: "Approved", date: "2024-02-29" },
-    hrApproval: { status: "Approved", date: "2024-03-01" },
-  },
-  {
-    id: 7,
-    type: "Comp-Off",
-    startDate: "2024-03-10",
-    endDate: "2024-03-10",
-    days: 1,
-    reason: "Compensatory off for weekend work",
-    status: "approved",
-    appliedDate: "2024-03-05",
-    managerApproval: { status: "Approved", date: "2024-03-06" },
-    hrApproval: { status: "Approved", date: "2024-03-07" },
-  },
-]
+
+
+export interface LeaveRecord {
+  id: number;            // ← must exist
+  type: string;
+  startDate: string;
+  endDate: string;
+  days: number;
+  reason: string;
+  status: string;
+  appliedDate: string;
+  hrName?: string;
+  managerName?: string;
+  hrResponse?: string | null;
+  managerResponse?: string | null;
+  hrComment?: string | null;
+  managerComment?: string | null;
+  isCancelled?: boolean;
+}
+
+
 
 const getStatusBadge = (status: string) => {
-  switch (status) {
+  switch (status.toLowerCase()) {
     case "approved":
-      return <Badge className="bg-green-100 text-green-700 hover:bg-green-100 dark:bg-green-900/20 dark:text-green-300">Approved</Badge>
+      return (
+        <Badge className="bg-green-100 text-green-700 hover:bg-green-100 dark:bg-green-900/20 dark:text-green-300">
+          Approved
+        </Badge>
+      )
+    case "pending manager approval":
     case "pending_manager_approval":
-      return <Badge className="bg-orange-100 text-orange-700 hover:bg-orange-100 dark:bg-orange-900/20 dark:text-orange-400">Pending Manager Approval</Badge>
+      return (
+        <Badge className="bg-orange-100 text-orange-700 hover:bg-orange-100 dark:bg-orange-900/20 dark:text-orange-400">
+          Pending Manager Approval
+        </Badge>
+      )
+    case "pending hr approval":
     case "pending_hr_approval":
-      return <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100 dark:bg-blue-900/20 dark:text-blue-400">Pending HR Approval</Badge>
-    case "submitted":
-      return <Badge className="bg-gray-100 text-gray-600 hover:bg-gray-100 dark:bg-gray-700 dark:text-gray-300">Submitted</Badge>
+      return (
+        <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100 dark:bg-blue-900/20 dark:text-blue-400">
+          Pending HR Approval
+        </Badge>
+      )
     case "cancelled":
-      return <Badge className="bg-yellow-100 text-yellow-700 hover:bg-yellow-100 dark:bg-yellow-900/20 dark:text-yellow-400">Cancelled</Badge>
+      return (
+        <Badge className="bg-yellow-100 text-yellow-700 hover:bg-yellow-100 dark:bg-yellow-900/20 dark:text-yellow-400">
+          Cancelled
+        </Badge>
+      )
     case "rejected":
-      return <Badge className="bg-red-100 text-red-700 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400">Rejected</Badge>
+      return (
+        <Badge className="bg-red-100 text-red-700 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400">
+          Rejected
+        </Badge>
+      )
     default:
-      return <Badge variant="outline">{status}</Badge>
+      return (
+        <Badge className="bg-gray-100 text-gray-600 hover:bg-gray-100 dark:bg-gray-700 dark:text-gray-300">
+          Submitted
+        </Badge>
+      )
   }
 }
+interface LeaveRecordWithDetails extends LeaveRecord {
+  leaveDayDetails: LeaveDayDetail[];
+  requestID : number,
+}
+
 
 export function ViewLeaveHistory() {
   const [pageSize, setPageSize] = useState("10")
@@ -144,42 +137,167 @@ export function ViewLeaveHistory() {
   const [selectedLeave, setSelectedLeave] = useState<LeaveRecord | null>(null)
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false)
   const [leaveToCancelId, setLeaveToCancelId] = useState<number | null>(null)
-  const [showNotificationPopup, setShowNotificationPopup] = useState(false) // State for popup visibility
-  const [notificationMessage, setNotificationMessage] = useState("") // State for popup message
+  const [showNotificationPopup, setShowNotificationPopup] = useState(false)
+  const [notificationMessage, setNotificationMessage] = useState("")
+  const [leaveHistory, setLeaveHistory] = useState<LeaveRecord[]>([])
+  const [loading, setLoading] = useState(true)
+  const [isLoading, setIsLoading] = useState(false)
 
-  const handleViewDetails = (leave: LeaveRecord) => {
-    setSelectedLeave(leave)
-    setIsReviewModalOpen(true)
-  }
+  // ✅ Move these inside the component
+  const [isAddLeaveModalOpen, setIsAddLeaveModalOpen] = useState(false)
+  const [leaveToEdit, setLeaveToEdit] = useState<LeaveRecordWithDetails | null>(null)
 
   const handleEditLeave = (leave: LeaveRecord) => {
-    console.log(`Editing leave request with ID: ${leave.id}`)
-    // Implement actual edit functionality here, e.g., open an edit form
+    const leaveDayDetails = generateLeaveDayDetails(leave.startDate, leave.endDate, leave.days);
+
+    setLeaveToEdit({
+      ...leave,
+      leaveDayDetails,
+      requestID: leave.id,
+    });
+    setIsAddLeaveModalOpen(true);
   }
+
+  const fetchLeaveHistory = async () => {
+      try {
+      const response = await axios.get("https://localhost:7080/api/Leave/GetAllLRApprovalWorkflows", {
+        withCredentials: true, // ✅ include credentials (cookies, tokens)
+      })
+
+        // Map API response to LeaveRecord structure
+        const formattedData: LeaveRecord[] = response.data.map((item: any) => ({
+          id: item.requestID,
+          type: item.leaveName,
+          startDate: new Date(item.leaveStartDate),
+          endDate: new Date(item.leaveEndDate),
+          days: item.leaveDayDetails?.reduce((sum: number, day: any) => {
+            if (day.dayType === "First-Half" || day.dayType === "Second-Half") return sum + 0.5;
+            return sum + 1; // Full day
+          }, 0) || 0
+,
+          reason: item.reason,
+          status: item.statusName
+            .toLowerCase()
+            .replace(/\s+/g, "_") as LeaveRecord["status"],
+          appliedDate: new Date(item.createdOn).toLocaleDateString(),
+        }))
+
+        setLeaveHistory(formattedData)
+      } catch (error) {
+        console.error("Error fetching leave history:", error)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+  // 🔹 Fetch data from API
+  useEffect(() => {
+    
+
+    fetchLeaveHistory()
+  }, [])
+
+  const handleViewDetails = async (leave: LeaveRecord) => {
+  setSelectedLeave(null);
+
+  try {
+    const response = await axios.get(
+      `https://localhost:7080/api/Leave/GetAllLRApprovalWorkflows`,
+      { withCredentials: true }
+    );
+
+    const item = response.data.find((wf: any) => wf.requestID === leave.id);
+    if (!item) throw new Error("Leave record not found.");
+
+    // calculate total days
+    const totalDays =
+      item.leaveDayDetails?.reduce((sum: number, day: any) => {
+        if (day.dayType === "First-Half" || day.dayType === "Second-Half") return sum + 0.5;
+        return sum + 1;
+      }, 0) || 0;
+
+    const detailedLeave: LeaveRecordWithDetails = {
+  id: item.requestID,
+  type: item.leaveName,
+  startDate: item.leaveStartDate, // ← must match interface
+  endDate: item.leaveEndDate,     // ← must match interface
+  days: totalDays,                // you already calculated total days
+  reason: item.reason,
+  status: item.statusName?.toLowerCase().replace(/\s+/g, "_") || "unknown",
+  appliedDate: new Date(item.createdOn).toLocaleDateString(),
+  managerName: item.managerName,
+  hrName: item.hrName,
+  managerResponse: item.managerResponse,
+  managerComment: item.managerComment,
+  hrResponse: item.hrResponse,
+  hrComment: item.hrComment,
+  isCancelled: item.isCancelled,
+  leaveDayDetails: item.leaveDayDetails || [],
+  requestID: item.requestID,
+};
+
+
+    setSelectedLeave(detailedLeave);
+    setIsReviewModalOpen(true);
+  } catch (error) {
+    console.error("Error fetching leave details:", error);
+    setNotificationMessage("Failed to fetch leave details.");
+    setShowNotificationPopup(true);
+  }
+};
+
+
+
+
+
+
 
   const handleCancelClick = (leaveId: number) => {
     setLeaveToCancelId(leaveId)
     setIsCancelModalOpen(true)
   }
 
-  const handleConfirmCancel = (leaveId: number) => {
-    console.log(`Cancelling leave request with ID: ${leaveId}`)
-    setNotificationMessage(`Leave request #${leaveId} cancelled successfully.`) // Set the message
-    setShowNotificationPopup(true) // Show the popup
-    setIsCancelModalOpen(false)
-    setLeaveToCancelId(null)
-  }
-
   const handleNotifyClick = (leaveId: number) => {
-    setNotificationMessage("Notified Successfully") // Set the message
-    setShowNotificationPopup(true) // Show the popup
+    setNotificationMessage("Notified Successfully")
+    setShowNotificationPopup(true)
     console.log(`Notifying approvers for leave request ID: ${leaveId}`)
   }
 
-  const totalPages = Math.ceil(mockLeaveHistory.length / parseInt(pageSize))
+  const handleConfirmCancel = async (leaveId: number) => {
+  setIsLoading(true);
+  try {
+    const payload = { requestID: leaveId, modUser: 0 };
+    const response = await axios.post(
+      "https://localhost:7080/api/Leave/CancelLeaveRequest",
+      payload,
+      { withCredentials: true }
+    );
+
+    // Check if response indicates success
+    if (response.data && response.data.status === 1) { // assuming status=1 means success
+      setLeaveHistory(prev =>
+        prev.map(l => (l.id === leaveId ? { ...l, status: "cancelled" } : l))
+      );
+      setNotificationMessage(`Leave request cancelled successfully.`);
+    } else {
+      setNotificationMessage(`Failed to cancel leave request : ${response.data?.message || "Unknown error"}`);
+    }
+  } catch (error: any) {
+    console.error("Error cancelling leave:", error);
+    setNotificationMessage(`Error cancelling leave request : ${error?.response?.data?.message || error.message}`);
+  } finally {
+    setShowNotificationPopup(true);
+    setIsCancelModalOpen(false);
+    setLeaveToCancelId(null);
+    setIsLoading(false);
+  }
+};
+
+
+  const totalPages = Math.ceil(leaveHistory.length / parseInt(pageSize))
   const startIndex = (currentPage - 1) * parseInt(pageSize)
   const endIndex = startIndex + parseInt(pageSize)
-  const currentData = mockLeaveHistory.slice(startIndex, endIndex)
+  const currentData = leaveHistory.slice(startIndex, endIndex)
 
   return (
     <Card className="w-full">
@@ -187,110 +305,185 @@ export function ViewLeaveHistory() {
         <CardTitle>Leave History</CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow className="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
-                <TableHead className="w-12 font-semibold text-gray-700 dark:text-gray-200 p-4">#</TableHead>
-                <TableHead className="font-semibold text-gray-700 dark:text-gray-200 p-4">Leave Type</TableHead>
-                <TableHead className="font-semibold text-gray-700 dark:text-gray-200 p-4">Duration</TableHead>
-                <TableHead className="font-semibold text-gray-700 dark:text-gray-200 p-4">Total Days</TableHead>
-                <TableHead className="font-semibold text-gray-700 dark:text-gray-200 p-4">Applied On</TableHead>
-                <TableHead className="font-semibold text-gray-700 dark:text-gray-200 p-4">Status</TableHead>
-                <TableHead className="w-32 font-semibold text-gray-700 dark:text-gray-200 p-4">Actions</TableHead>
-                <TableHead className="w-24 font-semibold text-gray-700 dark:text-gray-200 p-4">Notify</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {currentData.map((leave) => (
-                <TableRow key={leave.id} className="hover:bg-gray-50 dark:hover:bg-gray-700 border-b border-gray-100 dark:border-gray-600">
-                  <TableCell className="font-medium text-gray-600 dark:text-gray-300 p-4">{leave.id}</TableCell>
-                  <TableCell className="font-medium text-gray-900 dark:text-gray-100 p-4">{leave.type}</TableCell>
-                  <TableCell className="text-gray-700 dark:text-gray-200 p-4">
-                    {leave.startDate} to {leave.endDate}
-                  </TableCell>
-                  <TableCell className="text-gray-700 dark:text-gray-200 p-4">{leave.days}</TableCell>
-                  <TableCell className="text-gray-700 dark:text-gray-200 p-4">{leave.appliedDate}</TableCell>
-                  <TableCell className="p-4">
-                    {getStatusBadge(leave.status)}
-                  </TableCell>
-                  <TableCell className="p-4 flex gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => handleEditLeave(leave)}
-                      disabled={["approved", "rejected"].includes(String(leave.status).toLowerCase())}
-                      className="text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-                    >
-                      <Pencil className="h-4 w-4" />
-                      <span className="sr-only">Edit</span>
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={() => handleViewDetails(leave)}
-                      variant="outline"
-                      className="text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-                    >
-                      <Eye className="h-4 w-4" />
-                      <span className="sr-only">View</span>
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={["approved", "rejected"].includes(String(leave.status).toLowerCase())}
-                      onClick={() => handleCancelClick(leave.id)}
-                      className="text-gray-700 dark:text-gray-300 text-black flex items-center gap-2 font -medium"
-                    >
-                      <Ban className="h-4 w-4" />
-                      Cancel Leave
-                    </Button>
-                  </TableCell>
-                  <TableCell className="p-4">
-                    <Button
-                      size="sm"
-                      onClick={() => handleNotifyClick(leave.id)}
-                      disabled={["approved", "rejected"].includes(String(leave.status).toLowerCase())}
-                      // disabled={!(leave.status === "pending_hr_approval" || leave.status === "pending_manager_approval")}
-                      className="bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-2 font-medium"
-                    >
-                      <BellRing className="h-4 w-4" />
+        {loading ? (
+          <div className="text-center text-gray-500 py-8">Loading...</div>
+        ) : leaveHistory.length === 0 ? (
+          <div className="text-center text-gray-500 py-8">
+            No leave records found.
+          </div>
+        ) : (
+          <>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
+                    <TableHead className="w-12 font-semibold text-gray-700 dark:text-gray-200 p-4">
+                      #
+                    </TableHead>
+                    <TableHead className="font-semibold text-gray-700 dark:text-gray-200 p-4">
+                      Leave Type
+                    </TableHead>
+                    <TableHead className="font-semibold text-gray-700 dark:text-gray-200 p-4">
+                      Duration
+                    </TableHead>
+                    <TableHead className="font-semibold text-gray-700 dark:text-gray-200 p-4">
+                      Total Days
+                    </TableHead>
+                    <TableHead className="font-semibold text-gray-700 dark:text-gray-200 p-4">
+                      Applied On
+                    </TableHead>
+                    <TableHead className="font-semibold text-gray-700 dark:text-gray-200 p-4">
+                      Status
+                    </TableHead>
+                    <TableHead className="w-32 font-semibold text-gray-700 dark:text-gray-200 p-4">
+                      Actions
+                    </TableHead>
+                    <TableHead className="w-24 font-semibold text-gray-700 dark:text-gray-200 p-4">
                       Notify
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {currentData.map((leave, index) => (
+                    <TableRow
+                      key={leave.id}
+                      className="hover:bg-gray-50 dark:hover:bg-gray-700 border-b border-gray-100 dark:border-gray-600"
+                    >
+                      <TableCell>
+                        {startIndex + index + 1} <span className="text-xs text-gray-400"></span>
+                      </TableCell>
 
-        <Pagination
-          currentPage={currentPage}
-          totalPages={totalPages}
-          pageSize={pageSize}
-          totalItems={mockLeaveHistory.length}
-          onPageChange={setCurrentPage}
-          onPageSizeChange={setPageSize}
-        />
+                      <TableCell className="font-medium text-gray-900 dark:text-gray-100 p-4">
+                        {leave.type}
+                      </TableCell>
+                      <TableCell className="text-gray-700 dark:text-gray-200 p-4">
+                        {formatDateToYMD(leave.startDate)} to {formatDateToYMD(leave.endDate)}
+                      </TableCell>
 
-        <LeaveReviewModalEmp
-          isOpen={isReviewModalOpen}
-          onClose={() => setIsReviewModalOpen(false)}
-          leaveRequest={selectedLeave}
-        />
+                      <TableCell className="text-gray-700 dark:text-gray-200 p-4">
+                        {leave.days}
+                      </TableCell>
+                      <TableCell className="text-gray-700 dark:text-gray-200 p-4">
+                        {leave.appliedDate}
+                      </TableCell>
+                      <TableCell className="p-4">
+                        {getStatusBadge(leave.status)}
+                      </TableCell>
+                      <TableCell className="p-4 flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleEditLeave(leave)}
+                          disabled={["approved", "rejected"].includes(
+                            leave.status
+                          )}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => handleViewDetails(leave)}
+                          variant="outline"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={["approved", "rejected"].includes(
+                            leave.status
+                          )}
+                          onClick={() => handleCancelClick(leave.id)}
+                          className="text-gray-700 dark:text-gray-300 flex items-center gap-2"
+                        >
+                          <Ban className="h-4 w-4" />
+                          Cancel
+                        </Button>
+                      </TableCell>
+                      <TableCell className="p-4">
+                        <Button
+                          size="sm"
+                          disabled
+                          className="bg-gray-400 text-white flex items-center gap-2 font-medium cursor-not-allowed opacity-60"
+                        >
+                          <BellRing className="h-4 w-4" />
+                          Notify
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
 
-        <CancelLeaveConfirmationModal
-          isOpen={isCancelModalOpen}
-          onClose={() => setIsCancelModalOpen(false)}
-          onConfirm={handleConfirmCancel}
-          leaveId={leaveToCancelId}
-        />
+            <Pagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              pageSize={pageSize}
+              totalItems={leaveHistory.length}
+              onPageChange={setCurrentPage}
+              onPageSizeChange={setPageSize}
+            />
+
+            {selectedLeave && (
+  <LeaveReviewModalEmp
+    isOpen={isReviewModalOpen}
+    onClose={() => setIsReviewModalOpen(false)}
+    leaveRequest={selectedLeave}
+    isViewOnly={true} // if you just want to view details
+  />
+)}
+
+
+            <CancelLeaveConfirmationModal
+              isOpen={isCancelModalOpen}
+              onClose={() => setIsCancelModalOpen(false)}
+              onConfirm={handleConfirmCancel}
+              leaveId={leaveToCancelId}
+            />
+          </>
+        )}
+        <Dialog open={isAddLeaveModalOpen} onOpenChange={setIsAddLeaveModalOpen}>
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle>{leaveToEdit ? "Edit Leave" : "New Leave Request"}</DialogTitle>
+            </DialogHeader>
+            <AddLeaveForm
+              defaultValues={
+                leaveToEdit
+                  ? {
+                    requestID: leaveToEdit.requestID,
+                      leaveType: leaveToEdit.type, // rename 'type' → 'leaveType'
+                      startDate: new Date(leaveToEdit.startDate), // convert string → Date
+                      endDate: new Date(leaveToEdit.endDate),
+                      reason: leaveToEdit.reason,
+                      leaveDayDetails: leaveToEdit.leaveDayDetails || [],
+                    }
+                  : undefined
+              }
+                onSubmitSuccess={() => {
+                  setIsAddLeaveModalOpen(false); // ✅ Close the modal
+                  fetchLeaveHistory();           // Refresh the table
+                }}
+
+            />
+          </DialogContent>
+        </Dialog>
+
+        {showNotificationPopup && (
+          <NotificationPopup
+            message={notificationMessage}
+            onClose={() => setShowNotificationPopup(false)}
+          />
+        )}
+
+        {isLoading && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+            <div className="w-16 h-16 border-4 border-gray-300 border-t-blue-600 rounded-full animate-spin"></div>
+          </div>
+        )}
+
       </CardContent>
-      {showNotificationPopup && (
-        <NotificationPopup
-          message={notificationMessage}
-          onClose={() => setShowNotificationPopup(false)}
-        />
-      )}
     </Card>
   )
 }

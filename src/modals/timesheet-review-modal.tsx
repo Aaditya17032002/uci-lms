@@ -445,7 +445,8 @@ export function TimesheetReviewModal({ isOpen, onClose, timesheet, isViewOnly = 
                 placeholder="Enter your comments here..."
                 value={comment}
                 onChange={(e) => setComment(e.target.value)}
-                className="min-h-[100px] bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-600 text-gray-900 dark:text-gray-100 placeholder:text-gray-500 dark:placeholder:text-gray-400 focus:ring-blue-500 focus:border-blue-500"
+                disabled={TsApprovalStatus.status !== "Pending"}
+                className="min-h-[100px] bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-600 text-gray-900 dark:text-gray-100 placeholder:text-gray-500 dark:placeholder:text-gray-400 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 dark:disabled:bg-gray-700 disabled:text-gray-500 dark:disabled:text-gray-400 disabled:cursor-not-allowed"
               />
             </div>
           )}

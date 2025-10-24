@@ -67,6 +67,19 @@ export function LeaveReviewModal({ isOpen, onClose, leaveRequest, isViewOnly = f
 
   const [managerComment, setManagerComment] = useState("")
   const [submitting, setSubmitting] = useState(false)
+  const [currentUserName, setCurrentUserName] = useState<string>("")
+
+  // Load current user name from localStorage on component mount
+  useEffect(() => {
+    const storedUserName = localStorage.getItem("userName")
+    if (storedUserName) {
+      setCurrentUserName(storedUserName)
+    } else {
+      // Fallback to user ID if no name available
+      const userId = localStorage.getItem("id")
+      setCurrentUserName(userId ? `User (ID: ${userId})` : "Current User")
+    }
+  }, [isOpen])
 
   const formatDate = (iso?: string): string => {
     if (!iso) return "-"
@@ -95,25 +108,62 @@ export function LeaveReviewModal({ isOpen, onClose, leaveRequest, isViewOnly = f
   const isApproved = statusLabel === "Approved"
   const isCancelled = statusLabel === "Cancelled"
 
-  // Get manager name - try to get actual name, fallback to ID if needed
+  // Get manager name - use current user name for new approvals, or existing data for historical approvals
   const getManagerName = (): string => {
-    // Try to get manager name from various fields
-    const managerName = leaveRequest?.managerName || leaveRequest?.approvedByName || leaveRequest?.modifiedByName
-    if (managerName && typeof managerName === 'string' && managerName !== '0') {
-      return managerName
+    // For approved/rejected requests, try to get the actual manager name from the data
+    if (isApproved || isRejected) {
+      // Check if we have manager name in the response
+      const managerName = leaveRequest?.managerName || leaveRequest?.approvedByName || leaveRequest?.modifiedByName
+      if (managerName && typeof managerName === 'string' && managerName !== '0') {
+        return managerName
+      }
+
+      // If no manager name in response, we need to fetch it or use current user
+      // For now, use current user name as the manager who approved/rejected
+      if (currentUserName) {
+        return currentUserName
+      }
+
+      // Fallback to modUser ID if no name available
+      const modUser = leaveRequest?.modUser || leaveRequest?.approvedBy || leaveRequest?.modifiedBy
+      if (modUser && modUser !== 0) {
+        return `Manager (ID: ${modUser})`
+      }
     }
-    
-    // Fallback to modUser ID if no name available
-    const modUser = leaveRequest?.modUser || leaveRequest?.approvedBy || leaveRequest?.modifiedBy
-    if (modUser && modUser !== 0) {
-      return `Manager (ID: ${modUser})`
+
+    // For pending requests or when no historical data, use current user name
+    if (currentUserName) {
+      return currentUserName
     }
-    
+
     return "-"
   }
 
   const managerApprovedBy = getManagerName()
-  const managerApprovedOn = formatDateTime(leaveRequest?.approvedOn || leaveRequest?.modifiedOn)
+
+  // Debug logging for date fields
+  console.log("[LeaveReviewModal] leaveRequest data:", leaveRequest)
+  console.log("[LeaveReviewModal] managerResponseOn:", leaveRequest?.managerResponseOn)
+  console.log("[LeaveReviewModal] modifiedOn:", leaveRequest?.modifiedOn)
+
+  const getManagerResponseDate = () => {
+    // The API returns managerResponseOn (camelCase) field
+    if (leaveRequest?.managerResponseOn) {
+      return formatDateTime(leaveRequest.managerResponseOn)
+    }
+    if (leaveRequest?.modifiedOn) {
+      return formatDateTime(leaveRequest.modifiedOn)
+    }
+    if (leaveRequest?.approvedOn) {
+      return formatDateTime(leaveRequest.approvedOn)
+    }
+    if (leaveRequest?.rejectedOn) {
+      return formatDateTime(leaveRequest.rejectedOn)
+    }
+    return "-"
+  }
+
+  const managerResponseOn = getManagerResponseDate()
   const managerDecisionComment = (leaveRequest?.comments || "").trim() || (isApproved ? "Approved" : isRejected ? "Rejected" : "")
 
   const processAction = async (response: "Approve" | "Reject") => {
@@ -132,30 +182,43 @@ export function LeaveReviewModal({ isOpen, onClose, leaveRequest, isViewOnly = f
       console.log("[LeaveReviewModal] POST /ProcessManagerAction payload:", payload)
       const res = await axios.post("https://localhost:7080/api/Leave/ProcessManagerAction", payload, { withCredentials: true })
       console.log("[LeaveReviewModal] ProcessManagerAction response:", res?.data)
-      const ok = res?.data
-      if (ok) {
-        // Show toast notification with appropriate styling
+
+      // Close modal first
+      onClose()
+
+      // Show toast notification with appropriate styling
+      setTimeout(() => {
         if (response === "Approve") {
           toast({
             title: "Leave Approved",
-            description: "Leave request approved successfully",
-            className: "border-green-500 bg-green-50 text-green-800 dark:bg-green-900/20 dark:text-green-300 dark:border-green-600"
+            description: "",
+            duration:3000,
+            className: "border-green-500 text-green-800 dark:text-green-300 dark:border-green-600",           
           })
           onActionComplete && onActionComplete("approved", payload.requestID)
         } else {
           toast({
-            title: "Leave Rejected", 
-            description: "Leave request rejected successfully",
-            className: "border-red-500 bg-red-50 text-red-800 dark:bg-red-900/20 dark:text-red-300 dark:border-red-600"
+            title: "Leave Rejected",
+            description: "",
+            duration:3000,
+            className: "border-red-500 text-red-800 dark:text-red-300 dark:border-red-600",          
           })
           onActionComplete && onActionComplete("rejected", payload.requestID)
         }
-      }
+      }, 100)
+
+      // Close modal after successful action
+      //onClose()
     } catch (e) {
       console.error("[LeaveReviewModal] ProcessManagerAction failed", e)
+      toast({
+        title: "Error",
+        description: "Failed to process leave request. Please try again.",
+        duration:3000,
+        className: "border-red-500 text-red-800 dark:text-red-300 dark:border-red-600"
+      })
     } finally {
       setSubmitting(false)
-      onClose()
     }
   }
 
@@ -165,6 +228,15 @@ export function LeaveReviewModal({ isOpen, onClose, leaveRequest, isViewOnly = f
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="w-full max-w-full sm:max-w-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg mx-2 sm:mx-auto">
+        {/* Loading Overlay */}
+        {submitting && (
+          <div className="absolute inset-0 bg-black/50 dark:bg-black/70 rounded-lg flex items-center justify-center z-50">
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-6 flex flex-col items-center gap-3 shadow-xl">
+              <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div>
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Processing...</p>
+            </div>
+          </div>
+        )}
         <DialogHeader className="border-b border-gray-200 dark:border-gray-700 pb-4 px-4 sm:px-6 pt-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
             <DialogTitle className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white">
@@ -185,8 +257,8 @@ export function LeaveReviewModal({ isOpen, onClose, leaveRequest, isViewOnly = f
           {/* Status chip near Leave Type for Cancelled */}
           {statusLabel === "Cancelled" && (
             <Badge className="bg-yellow-100 text-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-400 flex items-center gap-1">
-                  <Clock className="h-3 w-3" /> Cancelled by Employee
-                 </Badge>
+              <Clock className="h-3 w-3" /> Cancelled by Employee
+            </Badge>
           )}
 
           {/* Manager Approval Summary */}
@@ -201,7 +273,7 @@ export function LeaveReviewModal({ isOpen, onClose, leaveRequest, isViewOnly = f
                     <strong className="text-gray-900 dark:text-white">Approved By:</strong> {String(managerApprovedBy)}
                   </div>
                   <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400">
-                    <strong className="text-gray-900 dark:text-white">Approved On:</strong> {managerApprovedOn}
+                    <strong className="text-gray-900 dark:text-white">Approved On:</strong> {managerResponseOn}
                   </div>
                   <div className="text-xs sm:text-sm">
                     <strong className="text-gray-900 dark:text-white">Comment:</strong>

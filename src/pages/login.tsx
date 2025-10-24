@@ -35,7 +35,13 @@ export default function LoginPage() {
             if (data.success) {
                 localStorage.setItem("roles", JSON.stringify(data.user.roles));
                 localStorage.setItem("id", data.user.id.toString());
+                // Store username from the response
+                if (data.user.username) {
+                    localStorage.setItem("userName", data.user.username);
+                    console.log("Saved username:", data.user.username);
+                }
                 console.log("Saved roles:", data.user.roles);
+                console.log("Full user data:", data.user);
 
                 // redirect to dashboard
                 window.location.href = "/dashboard";

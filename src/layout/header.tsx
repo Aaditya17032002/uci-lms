@@ -1,7 +1,7 @@
 // == responsive ==
 
 "use client"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "../ui/button"
 import { Badge } from "../ui/badge"
 import { Menu, Bell } from "lucide-react"
@@ -19,6 +19,26 @@ interface HeaderProps {
 export function Header({ onSidebarToggle, onThemeToggle }: HeaderProps) {
   const [notifications] = useState(5) // Mock notification count
   const [isNotificationOpen, setIsNotificationOpen] = useState(false)
+  const [userName, setUserName] = useState("John Doe") // Default fallback
+
+  // Generate initials from username
+  const getInitials = (name: string): string => {
+    if (!name) return "JD"
+    const words = name.trim().split(" ")
+    if (words.length === 1) {
+      return words[0].substring(0, 2).toUpperCase()
+    }
+    return (words[0][0] + words[words.length - 1][0]).toUpperCase()
+  }
+
+  // Load user name from localStorage on component mount
+  useEffect(() => {
+    const storedUserName = localStorage.getItem("userName")
+    console.log("[Header] storedUserName from localStorage:", storedUserName)
+    if (storedUserName) {
+      setUserName(storedUserName)
+    }
+  }, [])
 
   return (
     <header
@@ -80,13 +100,13 @@ export function Header({ onSidebarToggle, onThemeToggle }: HeaderProps) {
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="flex items-center gap-2 px-2 sm:px-3 py-2">
                 <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center">
-                  <span className="text-white font-medium text-sm">JD</span>
+                  <span className="text-white font-medium text-sm">{getInitials(userName)}</span>
                 </div>
                 <span
                   className={`hidden sm:inline text-sm font-medium
                  text-gray-700`}
                 >
-                  John Doe
+                  {userName}
                 </span>
               </Button>
             </DropdownMenuTrigger>

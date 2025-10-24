@@ -1,5 +1,3 @@
-//== responsive ==
-
 "use client"
 
 import { useState, useEffect } from "react"
@@ -82,6 +80,7 @@ interface ApiLeaveItem {
   createdOn: string
   modifiedBy: string
   modifiedOn: string
+  managerResponseOn?: string
 }
 
 interface LeaveEntry {
@@ -98,6 +97,8 @@ interface LeaveEntry {
   rawStatus: number
   statusLabel: "pending" | "approved" | "rejected" | "cancelled"
   modUser?: number
+  managerResponseOn?: string
+  modifiedOn?: string
 }
 
 interface PendingApprovalPageProps {
@@ -241,6 +242,8 @@ export function PendingApprovalPage({ isDarkMode }: PendingApprovalPageProps) {
           rawStatus: item.status,
           statusLabel,
           modUser: item.modUser,
+          managerResponseOn: item.managerResponseOn,
+          modifiedOn: item.modifiedOn,
         }
       })
 

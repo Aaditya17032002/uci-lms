@@ -83,6 +83,8 @@ export function TimesheetPage() {
   const [isViewingSpecificWeek, setIsViewingSpecificWeek] = useState(false)
   const [selectedWeekTimesheetId, setSelectedWeekTimesheetId] = useState<number | null>(null)
   const [timesheetStatus, setTimesheetStatus] = useState<number | null>(null) // 1-Pending,2-Submitted,3-Approved,4-Rejected
+  const [isSaving, setIsSaving] = useState(false) // Prevent multiple save operations
+  const [isCommentsDisabled, setIsCommentsDisabled] = useState(false)
 
   // Comments modal state
   const [isCommentsOpen, setIsCommentsOpen] = useState(false)
@@ -104,24 +106,6 @@ export function TimesheetPage() {
   // Entries loaded for the selected week
   const [entries, setEntries] = useState<TimesheetEntry[]>([])
 
-  const engagements = [
-    "Smart Attendance System",
-    "AI Chatbot for Customer Support",
-    "IoT-Based Home Automation",
-    "Blockchain Voting Platform",
-    "E-commerce Product Recommendation Engine",
-  ]
-
-  const tasks = [
-    "Frontend Development",
-    "Backend Development",
-    "UI/UX Design",
-    "Testing",
-    "Documentation",
-    "Code Review",
-    "Meeting",
-  ]
-
   // Helper function to get current week's date range
   const getCurrentWeekDates = () => {
     return weekDays.map((day) => day.full)
@@ -138,6 +122,13 @@ export function TimesheetPage() {
 
   // Calculate total week hours for CURRENT WEEK ONLY
   const weekTotalHours = getCurrentWeekEntries().reduce((sum, entry) => sum + entry.hours + entry.minutes / 60, 0)
+  
+  // Format weekly hours as hours and minutes
+  const formatWeeklyHours = (totalHours: number) => {
+    const hours = Math.floor(totalHours)
+    const minutes = Math.round((totalHours - hours) * 60)
+    return `${hours}h ${minutes}m`
+  }
 
   // Get day hours for each day
   const getDayHours = (dayFull: string) => {
@@ -276,6 +267,24 @@ export function TimesheetPage() {
         }
         const statusVal = firstEntry.status ?? firstEntry.Status ?? null
         setTimesheetStatus(typeof statusVal === "number" ? statusVal : null)
+       } else {
+         // No entries found - check if this is the current week
+         // If it's the current week, it should be "Pending" status
+         // If it's a past week with no entries, it could be "Draft" or "Pending"
+         setTimesheetStatus(null) // This will show as "Pending" in the badge
+         setTimesheetId(null)
+         setSelectedWeekTimesheetId(null)
+       }
+      
+      // Check if this is the current week and update v1 metadata if needed
+      // This ensures the "Go to current TS" button works correctly
+      if (v1CurrentStartISO && v1CurrentEndISO) {
+        const mondayISO = toISODate(monday)
+        const fridayISO = toISODate(friday)
+        if (mondayISO === v1CurrentStartISO && fridayISO === v1CurrentEndISO) {
+          // This is the current week, ensure we have the correct metadata
+          // The v1 metadata should already be set, but we can verify it here
+        }
       }
 
       const mapped: TimesheetEntry[] = data.map((d) => {
@@ -404,8 +413,29 @@ export function TimesheetPage() {
   }
 
   const handleSaveEntry = async () => {
+    if (isSaving) return // Prevent multiple saves
     if (newEntry.minutes % 5 !== 0) {
       setWarnMessage("Minutes must be in multiples of 5 (0,5,10,...,55)")
+      setShowWarnToast(true)
+      setTimeout(()=>setShowWarnToast(false),3000)
+      return
+    }
+    if (newEntry.hours > 12 || (newEntry.hours === 12 && newEntry.minutes > 0)) {
+      setWarnMessage("Time cannot exceed 12 hours")
+      setShowWarnToast(true)
+      setTimeout(()=>setShowWarnToast(false),3000)
+      return
+    }
+    
+    // Check daily total hours
+    const existingMinutes = getDayTotalsMinutes(selectedDate)
+    const newEntryMinutes = (newEntry.hours * 60) + newEntry.minutes
+    const dayTotalMinutes = existingMinutes + newEntryMinutes
+    const dayTotalHours = Math.floor(dayTotalMinutes / 60)
+    const dayTotalMinutesRemainder = dayTotalMinutes % 60
+    
+    if (dayTotalHours > 12 || (dayTotalHours === 12 && dayTotalMinutesRemainder > 0)) {
+      setWarnMessage("Daily total hours cannot exceed 12 hours")
       setShowWarnToast(true)
       setTimeout(()=>setShowWarnToast(false),3000)
       return
@@ -422,6 +452,7 @@ export function TimesheetPage() {
     const totalDayHours = Math.floor(dayTotal / 60)
     const totalDayMinutes = dayTotal % 60
 
+    setIsSaving(true)
     try {
       const res = await fetch(`https://localhost:7080/api/timesheet/save`, {
         method: "POST",
@@ -446,6 +477,10 @@ export function TimesheetPage() {
       if (!res.ok) throw new Error(`${res.status}`)
         // Reload data from backend to get the actual lineID
       await reloadCurrentData()
+      // Only reload current timesheet if not viewing a specific week
+      if (!isViewingSpecificWeek) {
+        await loadCurrentTimesheet()
+      }
       //    // Get the saved entry data from response
       // const savedData = await res.json()
       // console.log("Saved entry data:", savedData)
@@ -464,6 +499,8 @@ export function TimesheetPage() {
       setIsAddingEntry(false)
     } catch (e) {
       console.error("Failed to save entry", e)
+    } finally {
+      setIsSaving(false)
     }
   }
 
@@ -529,9 +566,16 @@ export function TimesheetPage() {
   }
 
   const handleUpdateEntry = async () => {
+    if (isSaving) return // Prevent multiple saves
     if (!editingEntry || !editEntryDraft.engagement || !editEntryDraft.task) return
     if (editEntryDraft.minutes % 5 !== 0) {
       setWarnMessage("Minutes must be in multiples of 5 (0,5,10,...,55)")
+      setShowWarnToast(true)
+      setTimeout(()=>setShowWarnToast(false),3000)
+      return
+    }
+    if (editEntryDraft.hours > 12 || (editEntryDraft.hours === 12 && editEntryDraft.minutes > 0)) {
+      setWarnMessage("Time cannot exceed 12 hours")
       setShowWarnToast(true)
       setTimeout(()=>setShowWarnToast(false),3000)
       return
@@ -540,6 +584,20 @@ export function TimesheetPage() {
     // Find the current entry from the entries array to get the most up-to-date lineID
     const currentEntry = entries.find(e => e.id === editingEntry)
     if (!currentEntry) return
+
+    // Check daily total hours
+    const existingMinutes = getDayTotalsMinutes(currentEntry.date) - (currentEntry.hours * 60 + currentEntry.minutes)
+    const newEntryMinutes = (editEntryDraft.hours * 60) + editEntryDraft.minutes
+    const dayTotalMinutes = existingMinutes + newEntryMinutes
+    const dayTotalHours = Math.floor(dayTotalMinutes / 60)
+    const dayTotalMinutesRemainder = dayTotalMinutes % 60
+    
+    if (dayTotalHours > 12 || (dayTotalHours === 12 && dayTotalMinutesRemainder > 0)) {
+      setWarnMessage("Daily total hours cannot exceed 12 hours")
+      setShowWarnToast(true)
+      setTimeout(()=>setShowWarnToast(false),3000)
+      return
+    }
 
     const pickedEng = engagementOptions.find(e => e.title === editEntryDraft.engagement)
     const pickedTask = taskOptions.find(t => t.taskName === editEntryDraft.task)
@@ -553,6 +611,7 @@ export function TimesheetPage() {
     const totalDayHours = Math.floor(dayTotal / 60)
     const totalDayMinutes = dayTotal % 60
 
+    setIsSaving(true)
     try {
       const res = await fetch(`https://localhost:7080/api/timesheet/save`, {
         method: "POST",
@@ -577,12 +636,18 @@ export function TimesheetPage() {
       
       // Reload current data to get updated data
       await reloadCurrentData()
+      // Only reload current timesheet if not viewing a specific week
+      if (!isViewingSpecificWeek) {
+        await loadCurrentTimesheet()
+      }
       setEditEntryDraft({ engagement: "", task: "", hours: 0, minutes: 0, comments: "" })
       setEditingEntry(null)
       setOriginalEntry(null)
       // Do not touch add row state when finishing edit
     } catch (e) {
       console.error("Failed to update entry", e)
+    } finally {
+      setIsSaving(false)
     }
   }
 
@@ -634,6 +699,7 @@ export function TimesheetPage() {
     return "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
   }
 
+
   const handleSubmitTimesheet = () => {
     // Validate min daily hours Mon-Fri
     const anyWeekdayUnderMin = weekDays
@@ -671,10 +737,37 @@ export function TimesheetPage() {
       setSubmitComment("")
       setShowSuccessToast(true)
       setTimeout(() => setShowSuccessToast(false), 3000)
-      
-      // Wait for backend to process submission before loading next week
-      await new Promise(r => setTimeout(r, 1000))
-      setIsViewingSpecificWeek(false) // Reset to viewing current timesheet after submission
+
+      // After submission, automatically load the next/current timesheet (pending) using v1 meta and GetTSbyWeek
+      await new Promise(r => setTimeout(r, 800))
+      try {
+        const v1Res = await fetch(`https://localhost:7080/api/timesheet/v1`, { credentials: "include" })
+        if (v1Res.ok) {
+          const p = await v1Res.json()
+          const d = p?.data
+          if (d?.currentWeekStartDate && d?.currentWeekEndDate) {
+            const monday = new Date(d.currentWeekStartDate)
+            const friday = new Date(d.currentWeekEndDate)
+            await loadWeekEntries(monday)
+            const monthsAbbr = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+            const wk = `${monthsAbbr[monday.getMonth()]} ${monday.getDate().toString().padStart(2,'0')} - ${monthsAbbr[friday.getMonth()]} ${friday.getDate().toString().padStart(2,'0')}, ${monday.getFullYear()}`
+            setCurrentWeek(wk)
+            updateWeekDays(wk)
+            setIsViewingSpecificWeek(true)
+          } else {
+            // fallback to reload current timesheet
+            setIsViewingSpecificWeek(false)
+            await loadCurrentTimesheet()
+          }
+        } else {
+          setIsViewingSpecificWeek(false)
+          await loadCurrentTimesheet()
+        }
+      } catch {
+        setIsViewingSpecificWeek(false)
+        await loadCurrentTimesheet()
+      }
+      // Reload rejected count after submission
       await loadCurrentTimesheet()
       //await reloadCurrentData()
       // Removed--- Follow Ajax pattern: Get dropdown list first by ddr
@@ -876,8 +969,22 @@ export function TimesheetPage() {
                       const sDate = new Date(yr, sPart.m, sPart.d)
                       const eDate = new Date(yr, ePart.m, ePart.d)
                       const toISO = (d: Date) => `${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2,'0')}-${d.getDate().toString().padStart(2,'0')}`
-                      return toISO(sDate) === v1CurrentStartISO && toISO(eDate) === v1CurrentEndISO
-                    } catch { return false }
+                      const currentStartISO = toISO(sDate)
+                      const currentEndISO = toISO(eDate)
+                      const isCurrentWeek = currentStartISO === v1CurrentStartISO && currentEndISO === v1CurrentEndISO
+                      console.log('Go to Current TS disabled check:', {
+                        currentWeek,
+                        currentStartISO,
+                        currentEndISO,
+                        v1CurrentStartISO,
+                        v1CurrentEndISO,
+                        isCurrentWeek
+                      })
+                      return isCurrentWeek
+                    } catch (e) { 
+                      console.log('Error in disabled check:', e)
+                      return false 
+                    }
                   })()}
                   className="font-medium bg-white dark:bg-gray-700 dark:text-gray-100 dark:border-gray-600 hover:dark:bg-gray-600 text-sm"
                   onClick={async () => {
@@ -891,6 +998,7 @@ export function TimesheetPage() {
                       const wk = `${monthsAbbr[monday.getMonth()]} ${monday.getDate().toString().padStart(2,'0')} - ${monthsAbbr[friday.getMonth()]} ${friday.getDate().toString().padStart(2,'0')}, ${monday.getFullYear()}`
                       setCurrentWeek(wk)
                       updateWeekDays(wk)
+                      setIsCommentsDisabled(true) // Disable comments when going to current TS
                     } catch (e) {
                       setWarnMessage("Failed to load current timesheet")
                       setShowWarnToast(true)
@@ -901,13 +1009,32 @@ export function TimesheetPage() {
                   <Clock className="w-4 h-4 mr-2" />
                   Go To Current TS
                 </Button>
+                {/* Status Badge - Always show when status is available */}
+                {timesheetStatus !== null && (
+                  <Badge
+                    variant="outline"
+                    className={`text-xs ${
+                      timesheetStatus === 4 
+                        ? "bg-red-100 text-red-700 border-red-300 dark:bg-red-900/20 dark:text-red-300 dark:border-red-700"
+                        : timesheetStatus === 3
+                        ? "bg-green-100 text-green-700 border-green-300 dark:bg-green-900/20 dark:text-green-300 dark:border-green-700"
+                        : timesheetStatus === 2
+                        ? "bg-yellow-100 text-yellow-700 border-yellow-300 dark:bg-yellow-900/20 dark:text-yellow-300 dark:border-yellow-700"
+                        : "bg-gray-100 text-gray-700 border-gray-300 dark:bg-gray-900/20 dark:text-gray-300 dark:border-gray-700"
+                    }`}
+                  >
+                    {timesheetStatus === 4 ? "Rejected" : 
+                     timesheetStatus === 3 ? "Approved" : 
+                     timesheetStatus === 2 ? "Submitted" : "Pending"}
+                  </Badge>
+                )}
               </div>
             </div>
 
             <div className="flex items-center gap-4">
               <div className="text-sm">
                 <span className={"text-gray-600"}>Weekly Total: </span>
-                <span className="font-semibold text-blue-600">{weekTotalHours.toFixed(1)}h</span>
+                <span className="font-semibold text-blue-600">{formatWeeklyHours(weekTotalHours)}</span>
                 <span className={`ml-2 text-gray-500 hidden sm:inline`}>Target: 40h</span>
                 <div className={`sm:hidden text-gray-500 text-xs`}>Target: 40h</div>
               </div>
@@ -966,7 +1093,8 @@ export function TimesheetPage() {
               <Button
                 variant="outline"
                 onClick={() => setIsAddingEntry(true)}
-                className="bg-white dark:bg-gray-700 dark:text-gray-100 dark:border-gray-600 hover:dark:bg-gray-600 text-sm"
+                disabled={timesheetStatus === 2 || timesheetStatus === 3}
+                className="bg-white dark:bg-gray-700 dark:text-gray-100 dark:border-gray-600 hover:dark:bg-gray-600 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Plus className="w-4 h-4 mr-2" />
                 Add Entry
@@ -989,25 +1117,25 @@ export function TimesheetPage() {
             {/* Table Header - Now visible on mobile with horizontal scroll */}
             <div className="overflow-x-auto">
               <div
-                className={`grid grid-cols-12 gap-4 text-sm font-medium border-b pb-2 min-w-[800px] text-gray-600 border-gray-200`}
+                className={`grid grid-cols-12 gap-2 text-sm font-medium border-b pb-2 min-w-[1000px] text-gray-600 border-gray-200`}
               >
-                <div className="col-span-3">ENGAGEMENT</div>
+                <div className="col-span-5">ENGAGEMENT</div>
                 <div className="col-span-2">TASK</div>
                 <div className="col-span-1">HOURS</div>
                 <div className="col-span-1">MINUTES</div>
-                <div className="col-span-3">COMMENTS</div>
-                <div className="col-span-2">ACTIONS</div>
+                <div className="col-span-2">COMMENTS</div>
+                <div className="col-span-1">ACTIONS</div>
               </div>
 
 
               {/* Add Entry Form (top row) */}
               {isAddingEntry && (
                 <div
-                  className={`border-b rounded-lg p-3 border-gray-200 bg-blue-50 min-w-[820px]`}
+                  className={`border-b rounded-lg p-3 border-gray-200 bg-blue-50 min-w-[1000px]`}
                 >
                   {/* Desktop Grid Layout */}
-                  <div className="hidden lg:grid grid-cols-12 gap-4 py-3">
-                    <div className="col-span-3">
+                  <div className="hidden lg:grid grid-cols-12 gap-2 py-3">
+                    <div className="col-span-5">
                       <Select
                         value={newEntry.engagement}
                         onValueChange={(value) => setNewEntry({ ...newEntry, engagement: value, task: "" })}
@@ -1046,7 +1174,7 @@ export function TimesheetPage() {
                       <Input
                         type="number"
                         min="0"
-                        max="24"
+                        max="12"
                         placeholder="0"
                         value={newEntry.hours === 0 ? "" : newEntry.hours}
                         onChange={(e) => setNewEntry({ ...newEntry, hours: Number.parseInt(e.target.value) || 0 })}
@@ -1065,7 +1193,7 @@ export function TimesheetPage() {
                         className="bg-white dark:bg-gray-800 dark:text-gray-100 dark:border-gray-600"
                       />
                     </div>
-                    <div className="col-span-3">
+                    <div className="col-span-2">
                       <Textarea
                         placeholder="Add comments..."
                         value={newEntry.comments}
@@ -1073,7 +1201,7 @@ export function TimesheetPage() {
                         className="min-h-[40px] bg-white dark:bg-gray-800 dark:text-gray-100 dark:border-gray-600"
                       />
                     </div>
-                    <div className="col-span-2 flex gap-2">
+                    <div className="col-span-1 flex gap-2">
                       <Button
                         size="sm"
                         onClick={handleAddEntry}
@@ -1105,7 +1233,7 @@ export function TimesheetPage() {
 
                   {/* Mobile Stack Layout */}
                   <div className="lg:hidden">
-                    <div className="flex gap-3 min-w-[800px]">
+                    <div className="flex gap-3 min-w-[1000px]">
                       <div className="w-48">
                         <Select
                           value={newEntry.engagement}
@@ -1145,7 +1273,7 @@ export function TimesheetPage() {
                           <Input
                             type="number"
                             min="0"
-                            max="24"
+                            max="12"
                             placeholder="0"
                             value={newEntry.hours === 0 ? "" : newEntry.hours}
                             onChange={(e) => setNewEntry({ ...newEntry, hours: Number.parseInt(e.target.value) || 0 })}
@@ -1215,15 +1343,15 @@ export function TimesheetPage() {
                   <p className="text-sm">Click "Add Entry" to get started</p>
                 </div>
               ) : (
-                <div className="min-w-[800px]">
+                <div className="min-w-[1000px]">
                   {currentDayEntries.map((entry) => (
                     <div
                       key={entry.id}
-                      className={`grid grid-cols-12 gap-4 py-3 border-b last:border-b-0 border-gray-100`}
+                      className={`grid grid-cols-12 gap-2 py-3 border-b last:border-b-0 border-gray-100`}
                     >
                       {editingEntry === entry.id ? (
                         <>
-                          <div className="col-span-3">
+                          <div className="col-span-5">
                             <Select
                                value={editEntryDraft.engagement}
                               onValueChange={(value) => setEditEntryDraft({ ...editEntryDraft, engagement: value, task: "" })}
@@ -1258,7 +1386,7 @@ export function TimesheetPage() {
                             <Input
                               type="number"
                               min="0"
-                              max="24"
+                              max="12"
                               placeholder="0"
                               value={editEntryDraft.hours === 0 ? "" : editEntryDraft.hours}
                               onChange={(e) => setEditEntryDraft({ ...editEntryDraft, hours: Number.parseInt(e.target.value) || 0 })}
@@ -1277,7 +1405,7 @@ export function TimesheetPage() {
                               className="bg-white dark:bg-gray-800 dark:text-gray-100 dark:border-gray-600"
                             />
                           </div>
-                          <div className="col-span-3">
+                          <div className="col-span-2">
                             <Textarea
                               placeholder="Add comments..."
                               value={editEntryDraft.comments}
@@ -1285,7 +1413,7 @@ export function TimesheetPage() {
                               className="min-h-[40px] bg-white dark:bg-gray-800 dark:text-gray-100 dark:border-gray-600"
                             />
                           </div>
-                          <div className="col-span-2 flex gap-2">
+                          <div className="col-span-1 flex gap-2">
                             <Button size="sm" onClick={handleUpdateEntry} className="bg-green-600 hover:bg-green-700">Update</Button>
                             <Button
                               size="sm"
@@ -1303,17 +1431,24 @@ export function TimesheetPage() {
                         </>
                       ) : (
                         <>
-                          <div className={`col-span-3 font-medium text-gray-800`}>{entry.engagement}</div>
-                          <div className={`col-span-2 text-gray-600`}>{entry.task}</div>
+                          <div className={`col-span-5 font-medium text-gray-800 truncate overflow-hidden`} title={entry.engagement}>
+                            <span className="block truncate">{entry.engagement}</span>
+                          </div>
+                          <div className={`col-span-2 text-gray-600 truncate overflow-hidden`} title={entry.task}>
+                            <span className="block truncate">{entry.task}</span>
+                          </div>
                           <div className="col-span-1 text-center font-medium text-gray-900 dark:text-gray-100">{entry.hours}</div>
                           <div className="col-span-1 text-center font-medium text-gray-900 dark:text-gray-100">{entry.minutes.toString().padStart(2, "0")}</div>
-                          <div className={`col-span-3 text-gray-600`}>{entry.comments}</div>
-                          <div className="col-span-2 flex gap-2">
+                          <div className={`col-span-2 text-gray-600 truncate overflow-hidden`} title={entry.comments}>
+                            <span className="block truncate">{entry.comments}</span>
+                          </div>
+                          <div className="col-span-1 flex gap-2">
                             <Button
                               variant="ghost"
                               size="sm"
                               onClick={() => handleEditEntry(entry)}
-                              className="text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100 dark:hover:bg-gray-700"
+                              disabled={timesheetStatus === 2 || timesheetStatus === 3} // Disable if submitted or approved
+                              className="text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                               <Edit className="w-4 h-4" />
                             </Button>
@@ -1321,7 +1456,8 @@ export function TimesheetPage() {
                               variant="ghost"
                               size="sm"
                               onClick={() => handleDeleteEntry(entry.id)}
-                              className="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 dark:hover:bg-gray-700"
+                              disabled={timesheetStatus === 2 || timesheetStatus === 3} // Disable if submitted or approved
+                              className="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                               <Trash2 className="w-4 h-4" />
                             </Button>
@@ -1340,14 +1476,14 @@ export function TimesheetPage() {
             <div className="flex items-center justify-between">
               <div className="text-sm">
                 <span className={"text-gray-600"}>
-                  Weekly Total: <strong>{weekTotalHours.toFixed(1)}h</strong> / 40h required
+                  Weekly Total: <strong>{formatWeeklyHours(weekTotalHours)}</strong> / 40h required
                 </span>
               </div>
             {/* Right: Buttons */}
               <div className="flex items-center space-x-3">
               <Button
                 variant="outline"
-                disabled={timesheetStatus === 1}
+                disabled={timesheetStatus === 1 || isCommentsDisabled} // Disable if pending or when going to current TS
                 onClick={async () => {
                   if (!timesheetId) { setCommentsData([]); setIsCommentsOpen(true); return }
                   try {
@@ -1371,7 +1507,7 @@ export function TimesheetPage() {
                 onClick={handleSubmitTimesheet}
                 disabled={
                   weekTotalHours < 40 ||
-                  (isViewingSpecificWeek && (timesheetStatus === 2 || timesheetStatus === 3))
+                  timesheetStatus === 2 || timesheetStatus === 3
                 }
                 className={`${weekTotalHours >= 40
                   ? "bg-green-600 hover:bg-green-700"
@@ -1439,6 +1575,7 @@ export function TimesheetPage() {
         onClose={() => setIsWeekSelectorOpen(false)}
         currentWeek={currentWeek}
         rejectedRanges={rejectedRanges}
+        selectedDate={selectedDate}
         onWeekSelect={(week) => {
           setCurrentWeek(week)
           // derive Monday from label

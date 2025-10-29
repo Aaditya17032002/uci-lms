@@ -12,9 +12,10 @@ interface WeekSelectorProps {
   currentWeek: string
   onWeekSelect: (week: string) => void
   rejectedRanges?: { timesheetID: number; startDate: string; endDate: string }[]
+  selectedDate?: string // Add selected date prop
 }
 
-export function WeekSelector({ isOpen, onClose, currentWeek, onWeekSelect, rejectedRanges = [] }: WeekSelectorProps) {
+export function WeekSelector({ isOpen, onClose, currentWeek, onWeekSelect, rejectedRanges = [], selectedDate: selectedDateProp }: WeekSelectorProps) {
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date())
   const [showWarning, setShowWarning] = useState(false)
   const [hasValidSelection, setHasValidSelection] = useState(false)
@@ -31,7 +32,11 @@ export function WeekSelector({ isOpen, onClose, currentWeek, onWeekSelect, rejec
           const payload = await res.json()
           const data = payload?.data
           if (data?.endDate) {
-            setMaxSelectableDate(new Date(data.endDate))
+            // Allow selection up to today, not just the current week's end date
+            const today = new Date()
+            const currentWeekEnd = new Date(data.endDate)
+            setMaxSelectableDate(today > currentWeekEnd ? today : currentWeekEnd)
+            //setMaxSelectableDate(currentWeekEnd)
           }
         }
       } catch {
@@ -50,7 +55,29 @@ export function WeekSelector({ isOpen, onClose, currentWeek, onWeekSelect, rejec
       const day = parseInt(dayStr,10)
       setDefaultMonth(new Date(year, month, day))
     } catch {}
-  }, [isOpen])
+    
+    // Set selected date from prop if provided
+    if (selectedDateProp) {
+      try {
+        // Parse selectedDateProp like "Monday, August 18"
+        const parts = selectedDateProp.split(", ")
+        if (parts.length === 2) {
+          const monthDay = parts[1].split(" ")
+          const monthName = monthDay[0]
+          const day = parseInt(monthDay[1])
+          const monthMap: Record<string, number> = { January:0, February:1, March:2, April:3, May:4, June:5, July:6, August:7, September:8, October:9, November:10, December:11 }
+          const month = monthMap[monthName]
+          if (month !== undefined) {
+            // Use current year as default
+            const year = new Date().getFullYear()
+            setSelectedDate(new Date(year, month, day))
+          }
+        }
+      } catch {
+        // ignore parsing errors
+      }
+    }
+  }, [isOpen, selectedDateProp])
 
   const handleDateSelect = (date: Date | undefined) => {
     if (date) {
@@ -59,20 +86,18 @@ export function WeekSelector({ isOpen, onClose, currentWeek, onWeekSelect, rejec
       if (date > today) {
         setShowWarning(true)
         setHasValidSelection(false)
-      } else {
+      } 
+  //     const maxDate = maxSelectableDate || new Date()
+  //     if (date > maxDate) {
+  //       setShowWarning(true)
+  //       setHasValidSelection(false)
+  //  }
+      else {
         setShowWarning(false)
         setHasValidSelection(true)
       }
     }
   }
- 
-  const mondayStatuses: Record<string, "approved" | "rejected"> = {
-  "2025-08-18": "approved",
-  "2025-08-25": "rejected",
-}
-const approvedMondays = Object.keys(mondayStatuses)
-  .filter(date => mondayStatuses[date] === "approved")
-  .map(date => new Date(date))
 
 // Build rejected markers across Mon-Fri from props
 const rejectedMondays = (rejectedRanges || []).map(r => new Date(r.startDate))
@@ -125,17 +150,14 @@ rejectedRanges.forEach(r => {
             onSelect={handleDateSelect}
             className="rounded-md border w-full"
             captionLayout="dropdown"
-            fromYear={2020}
+            fromYear={2024}
             toYear={new Date().getFullYear() + 1}
             defaultMonth={defaultMonth || selectedDate}
-            disabled={maxSelectableDate ? { after: maxSelectableDate } : undefined}
+            disabled={maxSelectableDate ? { after: maxSelectableDate } : { before: new Date(2024, 9, 1) }} // Allow current week selection even with rejected timesheets
             modifiers={{
-              approved: approvedMondays,
               rejected: rejectedDays
             }}
             modifiersClassNames={{
-              approved:
-                 "rounded-full border-1 border-green-200 bg-green-100 text-green-700 font-semibold",
               rejected:
                 "rounded-full border-1 border-red-200 bg-red-100 text-red-700 font-semibold"
             }}           

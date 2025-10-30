@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card"
 import { Button } from "../../ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table"
@@ -8,6 +8,7 @@ import { Plus, Edit } from 'lucide-react'
 import { Pagination } from "../../common/pagination"
 import { AddMappingModal } from "../../modals/add-mapping-modal"
 import { useToast } from "../../hooks/use-toast"
+import axios from "axios"
 
 interface UserPolicyMapping {
   id: number
@@ -19,54 +20,169 @@ interface UserPolicyMapping {
   modifiedOn: string
 }
 
-const initialUserPolicyMappings: UserPolicyMapping[] = [
-  { id: 1, employee: "Akash Patel", policyName: "Standard Policy (FTE)", startDate: "2025-05-07", endDate: "2026-06-07", modifiedBy: "Paritosh Unakar", modifiedOn: "09-May-2025 13:40" },
-  { id: 2, employee: "Akshay Supare", policyName: "Executive Policy (FTE)", startDate: "2024-01-01", endDate: "2025-12-31", modifiedBy: "Paritosh Unakar", modifiedOn: "09-May-2025 13:42" },
-  { id: 3, employee: "Zeel Sathwara", policyName: "Standard Policy (FTE)", startDate: "2025-01-01", endDate: "2026-01-01", modifiedBy: "Zeel Sathwara", modifiedOn: "09-Jun-2025 13:40" },
-  { id: 4, employee: "Aditya Jangam", policyName: "Standard Policy (FTE)", startDate: "2025-06-09", endDate: "2026-06-29", modifiedBy: "Aditya Jangam", modifiedOn: "09-Jun-2025 20:10" },
-  { id: 5, employee: "Tushar Mishra", policyName: "Standard Policy (FTE)", startDate: "2025-06-02", endDate: "2026-07-01", modifiedBy: "Tushar Mishra", modifiedOn: "10-Jun-2025 19:11" },
-  { id: 6, employee: "Paritosh Unakar", policyName: "Standard Policy (FTE)", startDate: "2025-06-01", endDate: "2027-06-30", modifiedBy: "Paritosh Unakar", modifiedOn: "30-Jun-2025 20:53" },
-  { id: 7, employee: "Vrushti Patel", policyName: "Standard Policy (FTE)", startDate: "2025-07-01", endDate: "2026-02-02", modifiedBy: "Vrushti Patel", modifiedOn: "01-Jul-2025 19:24" },
-  { id: 8, employee: "Nancy Sheth", policyName: "Standard Policy (FTE)", startDate: "2025-06-17", endDate: "2025-12-31", modifiedBy: "Nancy Sheth", modifiedOn: "08-Jul-2025 18:24" },
-]
+type ApiUserPolicyMapping = {
+  userID: number
+  userName: string
+  policyID: number
+  policyName: string
+  startDate: string
+  endDate: string
+  modifiedBy: string
+  modifiedOn: string
+}
+
+type ApiUser = {
+  userID: number
+  userName: string
+}
+
+type ApiPolicyRow = {
+  policyID: number
+  policyName: string
+}
 
 export function UserPolicyMappingPage() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
   const [editingMapping, setEditingMapping] = useState<UserPolicyMapping | null>(null)
   const [pageSize, setPageSize] = useState("10")
   const [currentPage, setCurrentPage] = useState(1)
-  const [userPolicyMappings, setUserPolicyMappings] = useState<UserPolicyMapping[]>(initialUserPolicyMappings)
+  const [userPolicyMappings, setUserPolicyMappings] = useState<UserPolicyMapping[]>([])
+  const [loading, setLoading] = useState<boolean>(false)
+  const [error, setError] = useState<string | null>(null)
+  const [userNameToId, setUserNameToId] = useState<Map<string, number>>(new Map())
+  const [policyNameToId, setPolicyNameToId] = useState<Map<string, number>>(new Map())
+  const [availableUsers, setAvailableUsers] = useState<{ id: number, name: string }[]>([])
+  const [availablePolicies, setAvailablePolicies] = useState<{ id: number, name: string }[]>([])
   const { toast } = useToast()
+
+  const loadData = async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      console.log("[UserPolicyMapping] Fetching mappings, users, and policies...")
+      const [mappingsResp, usersResp, policiesResp] = await Promise.all([
+        axios.get<ApiUserPolicyMapping[]>("https://localhost:7080/api/Leave/GetUserPolicyMapping", { withCredentials: true }),
+        axios.get<ApiUser[]>("https://localhost:7080/api/Leave/GetAllUsersWithoutPolicy", { withCredentials: true }),
+        axios.get<ApiPolicyRow[]>("https://localhost:7080/api/Leave/GetAllActiveLeavePolicies", { withCredentials: true }),
+      ])
+
+      console.log("[UserPolicyMapping] Raw mappings:", mappingsResp.data)
+      console.log("[UserPolicyMapping] Raw users:", usersResp.data)
+      console.log("[UserPolicyMapping] Raw policies:", policiesResp.data)
+
+      const mappings: UserPolicyMapping[] = (mappingsResp.data || []).map((m) => ({
+        id: m.userID,
+        employee: m.userName,
+        policyName: m.policyName,
+        startDate: m.startDate?.split("T")[0] || "",
+        endDate: m.endDate?.split("T")[0] || "",
+        modifiedBy: m.modifiedBy,
+        modifiedOn: new Date(m.modifiedOn).toLocaleString(),
+      }))
+      setUserPolicyMappings(mappings)
+
+      // Build user name -> id map from HRAdmin endpoint, try common field names
+      const uMap = new Map<string, number>()
+      const usersArr: { id: number, name: string }[] = []
+      for (const u of usersResp.data || []) {
+        const name = (u.userName || "").toString()
+        const id = Number(u.userID)
+        if (name && !Number.isNaN(id)) {
+          uMap.set(name, id)
+          usersArr.push({ id, name })
+        }
+      }
+      setUserNameToId(uMap)
+      setAvailableUsers(usersArr)
+
+      // Build policy name -> id map from policy rows
+      const pMap = new Map<string, number>()
+      const policiesArr: { id: number, name: string }[] = []
+      for (const p of policiesResp.data || []) {
+        if (p.policyName && p.policyID) pMap.set(p.policyName, p.policyID)
+        if (p.policyName && p.policyID) policiesArr.push({ id: p.policyID, name: p.policyName })
+      }
+      setPolicyNameToId(pMap)
+      setAvailablePolicies(policiesArr)
+      console.log("[UserPolicyMapping] Built name->id maps", { users: Array.from(uMap.entries()), policies: Array.from(pMap.entries()) })
+    } catch (e: any) {
+      console.error("[UserPolicyMapping] Load failed:", e)
+      setError(e?.message || "Failed to load data")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadData()
+  }, [])
 
   const handleEdit = (mapping: UserPolicyMapping) => {
     setEditingMapping(mapping)
     setIsAddModalOpen(true)
   }
 
-  const handleSave = (data: any) => {
-    const now = new Date();
-    const modifiedOn = `${now.getDate().toString().padStart(2, '0')}-${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getFullYear()} ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
-    
-    if (editingMapping) {
-      // Update existing mapping
-      setUserPolicyMappings(prev => prev.map(mapping => mapping.id === editingMapping.id ? { ...mapping, ...data, modifiedOn } : mapping))
+  const handleSave = async (data: any) => {
+    try {
+      // Resolve names from form or fall back to the editing record values
+      const selectedUserName: string | undefined = (data.employee || editingMapping?.employee)
+      const selectedPolicyName: string | undefined = (data.policyName || editingMapping?.policyName)
+
+      // Map display names to IDs with fallbacks
+      const userID = (selectedUserName ? userNameToId.get(selectedUserName) : undefined) ?? editingMapping?.id
+      const policyID = selectedPolicyName ? policyNameToId.get(selectedPolicyName) : undefined
+
+      if (!userID || !policyID) {
+        toast({
+          title: "Missing IDs",
+          description: "Could not resolve User or Policy ID. Please ensure valid selections.",
+          duration: 4000,
+          className: "border border-red-300",
+        })
+        return
+      }
+
+      const payload = {
+        userID,
+        policyID,
+        startDate: data.startDate ? new Date(data.startDate).toISOString() : (editingMapping?.startDate ? new Date(editingMapping.startDate).toISOString() : new Date().toISOString()),
+        endDate: data.endDate ? new Date(data.endDate).toISOString() : (editingMapping?.endDate ? new Date(editingMapping.endDate).toISOString() : new Date().toISOString()),
+        modUser: 0,
+      }
+      // Validate date ordering before calling API
+      if (new Date(payload.startDate) > new Date(payload.endDate)) {
+        toast({
+          title: "Invalid Dates",
+          description: "Start date must be earlier than end date.",
+          duration: 4000,
+          className: "border border-red-300",
+        })
+        return
+      }
+      console.log("[UserPolicyMapping] POST payload:", payload)
+
+      await axios.post("https://localhost:7080/api/Leave/SaveUserPolicyMapping", payload, { withCredentials: true })
+
       toast({
         title: "Success",
-        description: `Mapping for "${data.employee}" updated successfully!`,
+        description: editingMapping ? `Mapping for "${selectedUserName}" updated successfully!` : `Mapping for "${selectedUserName}" added successfully!`,
         duration: 3000,
+        className: "border border-green-300",
       })
-    } else {
-      // Add new mapping
-      const newId = Math.max(...userPolicyMappings.map(mapping => mapping.id), 0) + 1; // Generate a new ID
-      setUserPolicyMappings(prev => [...prev, { ...data, id: newId, modifiedBy: "Current User", modifiedOn }]);
+
+      await loadData()
+    } catch (e: any) {
+      console.error("[UserPolicyMapping] Save failed:", e)
       toast({
-        title: "Success",
-        description: `Mapping for "${data.employee}" added successfully!`,
-        duration: 3000,
+        title: "Error",
+        description: e?.message || "Failed to save mapping",
+        duration: 4000,
+        className: "border border-red-300",
       })
+    } finally {
+      setIsAddModalOpen(false)
+      setEditingMapping(null)
     }
-    setIsAddModalOpen(false)
-    setEditingMapping(null)
   }
 
   const totalPages = Math.ceil(userPolicyMappings.length / parseInt(pageSize))
@@ -88,6 +204,12 @@ export function UserPolicyMappingPage() {
         </div>
       </CardHeader>
       <CardContent className="p-0">
+        {loading && (
+          <div className="p-4 text-sm text-gray-600 dark:text-gray-300">Loading mappings...</div>
+        )}
+        {error && (
+          <div className="p-4 text-sm text-red-600 dark:text-red-400">{error}</div>
+        )}
         <Table>
           <TableHeader>
             <TableRow className="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
@@ -139,6 +261,8 @@ export function UserPolicyMappingPage() {
         onClose={() => setIsAddModalOpen(false)}
         onSave={handleSave}
         initialData={editingMapping}
+        users={availableUsers}
+        policies={availablePolicies}
       />
     </div>
   )

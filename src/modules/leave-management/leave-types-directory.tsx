@@ -1,12 +1,13 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card"
 import { Badge } from "../../ui/badge"
 import { Button } from "../../ui/button"
 import { Circle, Plus, Edit } from 'lucide-react' // Import Edit icon
 import { AddLeaveTypeModal } from "../../modals/add-leave-type-modal" // Import the modal
 import { useToast } from "../../hooks/use-toast" // Import useToast
+import axios from "axios"
 
 interface LeaveType {
   id: number
@@ -19,53 +20,97 @@ interface LeaveType {
   status: "Active" | "Inactive"
 }
 
-const initialMockLeaveTypes: LeaveType[] = [
-  { id: 1, name: "Casual Leave", code: "CL", description: "Short-Term Leave for Personal Reasons or Unforeseen Circumstances", colorCode: "#FF6347", createdBy: "Paritosh Unakar", modifiedBy: "Zeel Sathwara", status: "Active" },
-  { id: 2, name: "Sick Leave", code: "SL", description: "Leave due to illness", colorCode: "#32CD32", createdBy: "Paritosh Unakar", modifiedBy: "--", status: "Active" },
-  { id: 3, name: "Leave Without Pay", code: "LWP", description: "Unpaid Leave for Personal/Medical/Professional reasons granted upon exhaustion of CL/SL", colorCode: "#A9A9A9", createdBy: "Paritosh Unakar", modifiedBy: "--", status: "Active" },
-  { id: 4, name: "Work From Home", code: "WFH", description: "NOT A LEAVE - Carry out Work duties from home under special Circumstances", colorCode: "#1E90FF", createdBy: "Paritosh Unakar", modifiedBy: "--", status: "Active" },
-  { id: 5, name: "Comp-Off", code: "CO", description: "Compensation for Working on Weekend or Holiday", colorCode: "#FFD700", createdBy: "Paritosh Unakar", modifiedBy: "Zeel Sathwara", status: "Active" },
-  { id: 6, name: "Test Leave 1", code: "TL1", description: "Leave Type created", colorCode: "#911F47", createdBy: "Zeel Sathwara", modifiedBy: "Zeel Sathwara", status: "Inactive" },
-  { id: 7, name: "Casual Leave", code: "CL/CL", description: "Short-Term Leave for Personal Reasons or Unforeseen Circumstances", colorCode: "#FF6347", createdBy: "Tushar Mishra", modifiedBy: "Tushar Mishra", status: "Inactive" },
-  { id: 8, name: "Casual Leave", code: "CL", description: "Test Leave", colorCode: "#FF6347", createdBy: "Zeel Sathwara", modifiedBy: "Zeel Sathwara", status: "Inactive" },
-  { id: 9, name: "Sick Leave", code: "SL", description: "Test Leave", colorCode: "#32CD32", createdBy: "Zeel Sathwara", modifiedBy: "Zeel Sathwara", status: "Inactive" },
-  { id: 10, name: "Sick Leavee", code: "SL", description: "Test Leave Updated", colorCode: "#C91818", createdBy: "Zeel Sathwara", modifiedBy: "Zeel Sathwara", status: "Inactive" },
-]
+type ApiLeaveType = {
+  leaveTypeId: number
+  leaveName: string
+  description: string
+  colorCode: string
+  isActive: boolean
+  createdBy: string
+  modifiedBy: string
+}
 
 export function LeaveTypesDirectoryPage() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
   const [editingLeaveType, setEditingLeaveType] = useState<LeaveType | null>(null)
-  const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>(initialMockLeaveTypes)
+  const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([])
+  const [loading, setLoading] = useState<boolean>(false)
+  const [error, setError] = useState<string | null>(null)
   const { toast } = useToast()
+
+  const parseCodeFromName = (leaveName: string): string => {
+    const match = leaveName.match(/\(([^)]+)\)/)
+    return match ? match[1] : leaveName.split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 4)
+  }
+
+  const loadLeaveTypes = async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      console.log("[LeaveTypes] Fetching leave types...")
+      const resp = await axios.get<ApiLeaveType[]>("https://localhost:7080/api/Leave/GetLeaveTypes", { withCredentials: true })
+      console.log("[LeaveTypes] Raw response:", resp.data)
+      const apiItems: ApiLeaveType[] = Array.isArray(resp.data) ? resp.data : []
+      const uiItems: LeaveType[] = apiItems.map(item => ({
+        id: item.leaveTypeId,
+        name: item.leaveName.replace(/\s*\([^)]*\)\s*$/, "").trim() || item.leaveName,
+        code: parseCodeFromName(item.leaveName),
+        description: item.description,
+        colorCode: item.colorCode,
+        createdBy: item.createdBy,
+        modifiedBy: item.modifiedBy,
+        status: item.isActive ? "Active" : "Inactive",
+      }))
+      setLeaveTypes(uiItems)
+      console.log("[LeaveTypes] Processed items:", uiItems)
+    } catch (e: any) {
+      console.error("[LeaveTypes] Failed to fetch:", e)
+      setError(e?.message || "Failed to load leave types")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadLeaveTypes()
+  }, [])
 
   const handleEdit = (leaveType: LeaveType) => {
     setEditingLeaveType(leaveType)
     setIsAddModalOpen(true)
   }
 
-  const handleSave = (data: any) => {
-    if (editingLeaveType) {
-      // Update existing leave type
-      setLeaveTypes(prev => prev.map(type => type.id === editingLeaveType.id ? { ...type, ...data } : type))
+  const handleSave = async (data: any) => {
+    try {
+      console.log("[LeaveTypes] Saving leave type with form data:", data)
+      const payload = {
+        leaveTypeId: editingLeaveType?.id ?? 0,
+        leaveName: data.name,
+        description: data.description,
+        isActive: data.status === true || data.status === "Active",
+        colorCode: data.colorCode,
+        modUser: 0,
+      }
+      console.log("[LeaveTypes] POST payload:", payload)
+      await axios.post("https://localhost:7080/api/Leave/SaveLeaveType", payload, { withCredentials: true })
       toast({
         title: "Success",
-        description: `Leave type "${data.name}" updated successfully!`,
+        description: editingLeaveType ? `Leave type "${data.name}" updated successfully!` : `Leave type "${data.name}" added successfully!`,
         duration: 3000,
+        className: "border border-green-300",
       })
-    } else {
-      // Add new leave type
-      const newId = Math.max(...leaveTypes.map(type => type.id), 0) + 1; // Generate a new ID
-      // Simple code generation, you might want a more robust one
-      const newCode = data.name.substring(0, 3).toUpperCase() + newId; 
-      setLeaveTypes(prev => [...prev, { ...data, id: newId, code: newCode, createdBy: "Current User", modifiedBy: "--" }]);
+      await loadLeaveTypes()
+    } catch (e: any) {
+      console.error("[LeaveTypes] Save failed:", e)
       toast({
-        title: "Success",
-        description: `Leave type "${data.name}" added successfully!`,
-        duration: 3000,
+        title: "Error",
+        description: e?.message || "Failed to save leave type",
+        duration: 4000,
       })
+    } finally {
+      setIsAddModalOpen(false)
+      setEditingLeaveType(null)
     }
-    setIsAddModalOpen(false)
-    setEditingLeaveType(null)
   }
 
   return (
@@ -82,7 +127,13 @@ export function LeaveTypesDirectoryPage() {
         </div>
       </CardHeader>
       <CardContent className="p-0 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-        {leaveTypes.map((type) => (
+        {loading && (
+          <div className="col-span-full p-4 text-sm text-gray-600 dark:text-gray-300">Loading leave types...</div>
+        )}
+        {error && (
+          <div className="col-span-full p-4 text-sm text-red-600 dark:text-red-400">{error}</div>
+        )}
+        {!loading && !error && leaveTypes.map((type) => (
           <Card key={type.id} className="border border-gray-200 dark:border-gray-600 rounded-lg shadow-sm bg-white dark:bg-gray-800">
             <CardContent className="p-4 space-y-3">
               <div className="flex items-center justify-between"> {/* Added flex and justify-between */}

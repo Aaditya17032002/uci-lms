@@ -9,6 +9,7 @@ import { Eye, Info } from 'lucide-react'
 import { Pagination } from "../../common/pagination"
 import { LeaveReviewModalHR } from "../../modals/leave-review-modal-hr"
 import { useToast } from "../../hooks/use-toast"
+import axios from "axios"
 
 interface LeaveRequest {
   id: number
@@ -20,6 +21,10 @@ interface LeaveRequest {
   appliedOn: string
   reason: string
   status: string
+  numericStatus?: number
+  hrApprovedBy?: string
+  hrApprovedOn?: string
+  hrComment?: string
 }
 
 const mockLeaveRequests: LeaveRequest[] = [
@@ -37,43 +42,238 @@ export function LeaveRequestApprovalsPage() {
   const [selectedLeaveRequest, setSelectedLeaveRequest] = useState<LeaveRequest | null>(null)
   const [pageSize, setPageSize] = useState("10")
   const [currentPage, setCurrentPage] = useState(1)
-  const [pendingRequests, setPendingRequests] = useState<LeaveRequest[]>(mockLeaveRequests)
+  const [pendingRequests, setPendingRequests] = useState<LeaveRequest[]>([])
   const { toast } = useToast()
 
-  // This useEffect is correctly placed and should not cause an error if React is set up.
-  // It's possible the error is coming from a different file or a build issue.
-  // I've added it here for completeness, but the previous version also had it.
+  // Format ISO date strings like 2025-10-16 to 16-Oct-2025
+  const formatDate = (value?: string) => {
+    if (!value) return ""
+    try {
+      const d = new Date(value)
+      return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }).replace(/\s/g, "-")
+    } catch {
+      return value
+    }
+  }
+
   useEffect(() => {
-    // Any logic that needs to run on component mount or updates
-    // For example, fetching initial data or setting up subscriptions
-  }, []);
+    const fetchApprovals = async () => {
+      try {
+        console.log("[HR Approvals] Fetching (POST https://localhost:7080/api/Leave/hr-approvals) withCredentials...")
+        const resp = await axios.post(
+          "https://localhost:7080/api/Leave/hr-approvals",
+          {},
+          { withCredentials: true }
+        )
+        console.log("[HR Approvals] Raw response:", resp?.data)
+        const list = Array.isArray(resp?.data) ? resp.data : []
+        console.log("[HR Approvals] Items:", list.length)
+        const mapped: LeaveRequest[] = list.map((item: any, index: number) => ({
+          id: item.requestID ?? index + 1,
+          requestBy: item.requestedBy ?? "",
+          leaveType: item.leaveName ?? "",
+          fromDate: formatDate(item.leaveStartDate),
+          toDate: formatDate(item.leaveEndDate),
+          totalDays: item.totalDays ?? 0,
+          appliedOn: formatDate(item.requestDate),
+          reason: item.reason ?? "",
+          status:
+            item.status === 3
+              ? "approved"
+              : item.status === 6
+              ? "pending_hr_approval"
+              : item.status === 8
+              ? "rejected_by_hr"
+              : item.status === 9
+              ? "cancelled_by_emp"
+              : "pending_hr_approval",
+          numericStatus: typeof item.status === "number" ? item.status : undefined,
+          hrApprovedBy: item.hrApprovedBy ?? undefined,
+          hrApprovedOn: item.hrApprovedOn ?? undefined,
+          hrComment: item.hrComment ?? undefined,
+        }))
+        console.log("[HR Approvals] First mapped row:", mapped[0])
+
+        // Merge persisted HR decisions from localStorage (survives reloads)
+        try {
+          const overridesRaw = localStorage.getItem("hrStatusOverrides")
+          const overrides: Record<string, string> = overridesRaw ? JSON.parse(overridesRaw) : {}
+          const metaOverridesRaw = localStorage.getItem("hrMetaOverrides")
+          const metaOverrides: Record<string, { hrApprovedBy?: string; hrApprovedOn?: string; hrComment?: string }> = metaOverridesRaw ? JSON.parse(metaOverridesRaw) : {}
+          console.log("[HR Approvals] Loaded overrides:", overrides)
+          console.log("[HR Approvals] Loaded meta overrides:", metaOverrides)
+          const merged = mapped.map(req => {
+            const override = overrides[String(req.id)]
+            const meta = metaOverrides[String(req.id)]
+            return {
+              ...req,
+              status: override ? override : req.status,
+              hrApprovedBy: meta?.hrApprovedBy ?? req.hrApprovedBy,
+              hrApprovedOn: meta?.hrApprovedOn ?? req.hrApprovedOn,
+              hrComment: meta?.hrComment ?? req.hrComment,
+            }
+          })
+          // Sort: pending_hr_approval first, then others, cancelled_by_emp last
+          const priority: Record<string, number> = {
+            pending_hr_approval: 0,
+            approved: 1,
+            rejected_by_hr: 2,
+            cancelled_by_emp: 3,
+          }
+          const sorted = [...merged].sort((a, b) => {
+            const pa = priority[a.status] ?? 2
+            const pb = priority[b.status] ?? 2
+            if (pa !== pb) return pa - pb
+            // tie-breaker by appliedOn desc (most recent first) if possible
+            const ad = a.appliedOn ? Date.parse(a.appliedOn.replace(/-/g, ' ')) : 0
+            const bd = b.appliedOn ? Date.parse(b.appliedOn.replace(/-/g, ' ')) : 0
+            return bd - ad
+          })
+          setPendingRequests(sorted)
+        } catch (e) {
+          console.log("[HR Approvals] Failed to read overrides:", e)
+          const priority: Record<string, number> = {
+            pending_hr_approval: 0,
+            approved: 1,
+            rejected_by_hr: 2,
+            cancelled_by_emp: 3,
+          }
+          const sorted = [...mapped].sort((a, b) => {
+            const pa = priority[a.status] ?? 2
+            const pb = priority[b.status] ?? 2
+            if (pa !== pb) return pa - pb
+            const ad = a.appliedOn ? Date.parse(a.appliedOn.replace(/-/g, ' ')) : 0
+            const bd = b.appliedOn ? Date.parse(b.appliedOn.replace(/-/g, ' ')) : 0
+            return bd - ad
+          })
+          setPendingRequests(sorted)
+        }
+      } catch (err: any) {
+        console.log("[HR Approvals] Fetch error:", err)
+        toast({
+          title: "Failed to load approvals",
+          description: err?.message || "Unexpected error",
+          duration: 4000,
+        })
+      }
+    }
+    fetchApprovals()
+  }, [])
 
   const handleReview = (request: LeaveRequest) => {
     setSelectedLeaveRequest(request)
     setIsReviewModalOpen(true)
   }
 
-  const handleApprove = (comment: string) => {
+  const handleApprove = async (comment: string) => {
     if (selectedLeaveRequest) {
-      setPendingRequests(prev => prev.filter(req => req.id !== selectedLeaveRequest.id))
+      const now = new Date().toISOString()
+      // optimistic update
+      setPendingRequests(prev => {
+        const next = prev.map(req => req.id === selectedLeaveRequest.id ? { ...req, status: "approved", numericStatus: 3, hrApprovedOn: now, hrComment: comment || undefined } : req)
+        const priority: Record<string, number> = { pending_hr_approval: 0, approved: 1, rejected_by_hr: 2, cancelled_by_emp: 3 }
+        return next.slice().sort((a, b) => {
+          const pa = priority[a.status] ?? 2
+          const pb = priority[b.status] ?? 2
+          if (pa !== pb) return pa - pb
+          const ad = a.appliedOn ? Date.parse(a.appliedOn.replace(/-/g, ' ')) : 0
+          const bd = b.appliedOn ? Date.parse(b.appliedOn.replace(/-/g, ' ')) : 0
+          return bd - ad
+        })
+      })
+      // show toast immediately
       toast({
         title: "Leave Approved",
         description: `Leave request for ${selectedLeaveRequest.requestBy} has been approved.`,
         duration: 3000,
+        className: "border-2 border-green-500",
       })
+      // Persist override so it survives reloads
+      try {
+        const overridesRaw = localStorage.getItem("hrStatusOverrides")
+        const overrides: Record<string, string> = overridesRaw ? JSON.parse(overridesRaw) : {}
+        overrides[String(selectedLeaveRequest.id)] = "approved"
+        localStorage.setItem("hrStatusOverrides", JSON.stringify(overrides))
+        console.log("[HR Approvals] Stored override (approved)", overrides)
+
+        const metaRaw = localStorage.getItem("hrMetaOverrides")
+        const meta: Record<string, { hrApprovedBy?: string; hrApprovedOn?: string; hrComment?: string }> = metaRaw ? JSON.parse(metaRaw) : {}
+        const hrName = (sessionStorage.getItem("userName") || localStorage.getItem("userName") || document.cookie.match(/(?:^|; )userName=([^;]+)/)?.[1] || "") as string
+        meta[String(selectedLeaveRequest.id)] = { hrApprovedBy: hrName || undefined, hrApprovedOn: now, hrComment: comment || undefined }
+        localStorage.setItem("hrMetaOverrides", JSON.stringify(meta))
+        console.log("[HR Approvals] Stored meta override (approved)", meta)
+      } catch (e) {
+        console.log("[HR Approvals] Failed storing override:", e)
+      }
+      // Call backend (best effort)
+      try {
+        console.log("[HR Approvals] POST ProcessHRAction (Approve)", { requestID: selectedLeaveRequest.id, response: "Approved", comment })
+        await axios.post(
+          "https://localhost:7080/api/Leave/ProcessHRAction",
+          { requestID: selectedLeaveRequest.id, response: "Approved", comment, modUser: 0 },
+          { withCredentials: true }
+        )
+        console.log("[HR Approvals] Backend updated for approve")
+      } catch (err: any) {
+        console.log("[HR Approvals] Backend approve failed, keeping optimistic state.", err?.response?.data || err?.message)
+      }
     }
     setIsReviewModalOpen(false)
     setSelectedLeaveRequest(null)
   }
 
-  const handleReject = (comment: string) => {
+  const handleReject = async (comment: string) => {
     if (selectedLeaveRequest) {
-      setPendingRequests(prev => prev.filter(req => req.id !== selectedLeaveRequest.id))
+      const now = new Date().toISOString()
+      // optimistic update
+      setPendingRequests(prev => {
+        const next = prev.map(req => req.id === selectedLeaveRequest.id ? { ...req, status: "rejected_by_hr", numericStatus: 8, hrApprovedOn: now, hrComment: comment || undefined } : req)
+        const priority: Record<string, number> = { pending_hr_approval: 0, approved: 1, rejected_by_hr: 2, cancelled_by_emp: 3 }
+        return next.slice().sort((a, b) => {
+          const pa = priority[a.status] ?? 2
+          const pb = priority[b.status] ?? 2
+          if (pa !== pb) return pa - pb
+          const ad = a.appliedOn ? Date.parse(a.appliedOn.replace(/-/g, ' ')) : 0
+          const bd = b.appliedOn ? Date.parse(b.appliedOn.replace(/-/g, ' ')) : 0
+          return bd - ad
+        })
+      })
+      // show toast immediately
       toast({
         title: "Leave Rejected",
         description: `Leave request for ${selectedLeaveRequest.requestBy} has been rejected.`,
         duration: 3000,
+        className: "border-2 border-red-500",
       })
+      // Persist override so it survives reloads
+      try {
+        const overridesRaw = localStorage.getItem("hrStatusOverrides")
+        const overrides: Record<string, string> = overridesRaw ? JSON.parse(overridesRaw) : {}
+        overrides[String(selectedLeaveRequest.id)] = "rejected_by_hr"
+        localStorage.setItem("hrStatusOverrides", JSON.stringify(overrides))
+        console.log("[HR Approvals] Stored override (rejected_by_hr)", overrides)
+
+        const metaRaw = localStorage.getItem("hrMetaOverrides")
+        const meta: Record<string, { hrApprovedBy?: string; hrApprovedOn?: string; hrComment?: string }> = metaRaw ? JSON.parse(metaRaw) : {}
+        const hrName = (sessionStorage.getItem("userName") || localStorage.getItem("userName") || document.cookie.match(/(?:^|; )userName=([^;]+)/)?.[1] || "") as string
+        meta[String(selectedLeaveRequest.id)] = { hrApprovedBy: hrName || undefined, hrApprovedOn: now, hrComment: comment || undefined }
+        localStorage.setItem("hrMetaOverrides", JSON.stringify(meta))
+        console.log("[HR Approvals] Stored meta override (rejected_by_hr)", meta)
+      } catch (e) {
+        console.log("[HR Approvals] Failed storing override:", e)
+      }
+      // Call backend (best effort)
+      try {
+        console.log("[HR Approvals] POST ProcessHRAction (Reject)", { requestID: selectedLeaveRequest.id, response: "Rejected", comment })
+        await axios.post(
+          "https://localhost:7080/api/Leave/ProcessHRAction",
+          { requestID: selectedLeaveRequest.id, response: "Rejected", comment, modUser: 0 },
+          { withCredentials: true }
+        )
+        console.log("[HR Approvals] Backend updated for reject")
+      } catch (err: any) {
+        console.log("[HR Approvals] Backend reject failed, keeping optimistic state.", err?.response?.data || err?.message)
+      }
     }
     setIsReviewModalOpen(false)
     setSelectedLeaveRequest(null)
@@ -116,19 +316,21 @@ export function LeaveRequestApprovalsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {currentData.map((request) => (
-                  <TableRow key={request.id} className="hover:bg-gray-50 dark:hover:bg-gray-700 border-b border-gray-100 dark:border-gray-600">
+                {currentData.map((request, idx) => (
+                  <TableRow key={request.id ?? `${startIndex + idx + 1}`} className="hover:bg-gray-50 dark:hover:bg-gray-700 border-b border-gray-100 dark:border-gray-600">
                    <TableCell className="p-4 text-center">
                       <div
                         className={`mx-auto w-8 h-8 rounded-full flex items-center justify-center font-bold border-2 ${
-                          request.status === "approved"
+                          request.numericStatus === 3 || request.status === "approved"
                             ? "border-green-300 bg-green-100 text-black"
-                            : request.status === "rejected" || request.status === "rejected_by_hr"
+                            : request.numericStatus === 8 || request.status === "rejected_by_hr"
                             ? "border-red-300 bg-red-100 text-black"
+                            : request.numericStatus === 9 || request.status === "cancelled_by_emp"
+                            ? "border-yellow-300 bg-yellow-100 text-black"
                             : "border-transparent text-black bg-transparent"
                         }`}
                       >
-                        {request.id}
+                         {startIndex + idx + 1}
                       </div>
                     </TableCell>
                     <TableCell className="font-medium text-gray-900 dark:text-gray-100 p-4">{request.requestBy}</TableCell>

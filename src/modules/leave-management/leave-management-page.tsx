@@ -1,7 +1,3 @@
-
-// == responsive ==
-
-
 "use client"
 
 import { useState } from "react"
@@ -25,10 +21,10 @@ import { Briefcase } from "lucide-react" // Using Briefcase as a generic icon fo
 export function LeaveManagementPage() {
 
   const [activeTab, setActiveTab] = useState("leave-policies")
-
+  
   return (
-    <div className="p-4 sm:p-6 space-y-6">
-    <Card className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-sm">
+    <div className="p-6">
+    <Card className="w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-sm">
       <CardHeader className="border-b border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 p-6">
         <CardTitle className="text-2xl font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
           <Briefcase className="h-6 w-6 text-blue-600" />
@@ -36,13 +32,13 @@ export function LeaveManagementPage() {
           Leave Management
         </CardTitle>
       </CardHeader>
-      <CardContent className="p-0">
+      <CardContent className="p-0 w-full">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
 
           {/* TabsList made scrollable on mobile */}
 
           <div className="w-full overflow-x-auto">
-            <TabsList className=" flex h-12 border-b-0 whitespace-nowrap md:min-w-full">
+            <TabsList className="flex h-12 border-b-0 whitespace-nowrap md:min-w-full">
               <TabsTrigger
 
                 value="leave-policies"

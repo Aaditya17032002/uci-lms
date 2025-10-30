@@ -6,6 +6,7 @@ import { Badge } from "../ui/badge"
 import { Textarea } from "../ui/textarea"
 import { Button } from "../ui/button"
 import { CheckCircle, XCircle, Clock, X, Check } from 'lucide-react' // Added icons for approval status
+import axios from "axios"
 
 interface LeaveReviewModalHRProps {
   isOpen: boolean
@@ -17,63 +18,32 @@ interface LeaveReviewModalHRProps {
 }
 
 
-export function LeaveReviewModalHR({ isOpen, onClose, leaveRequest, isViewOnly = false  }: LeaveReviewModalHRProps) {
+export function LeaveReviewModalHR({ isOpen, onClose, leaveRequest, isViewOnly = false, onApprove, onReject }: LeaveReviewModalHRProps) {
   // Mock data for manager and HR approval status
   // In a real app, this would come from leaveRequest or a separate fetch
   console.log("leaveRequest.status [inside leavereviwmodal func]:", leaveRequest?.status);
   const mockApprovalStatus = {
-
-  manager: {
-
-    status: leaveRequest?.status === "approved" || leaveRequest?.status === "pending_hr_approval" || leaveRequest?.status === "rejected_by_hr"
-
-      ? "Approved"
-
-      : leaveRequest?.status === "rejected"
-
-        ? "Rejected"
-
-        : "Pending",
-
-    approvedBy: "John Doe (Manager)",
-
-    approvedOn: leaveRequest?.status === "rejected" ? "2025-07-20" : "2025-07-20",
-
-    comment: leaveRequest?.status === "rejected"
-
-      ? "Leave request rejected by manager."
-
-      : "Approved"
-
-  },
-
-  hr: {
-
-    status: leaveRequest?.status === "approved"
-
-      ? "Approved"
-
-      : leaveRequest?.status === "rejected_by_hr"
-
-        ? "Rejected"
-
-        : "Pending",
-
-    approvedBy: "Jane Smith (HR)",
-
-    approvedOn: leaveRequest?.status === "rejected_by_hr" ? "2025-07-22" : "2025-07-22",
-
-    comment: leaveRequest?.status === "rejected_by_hr"
-
-      ? "Leave request rejected by HR."
-
-      : "HR approval granted."
-
+    manager: {
+      status: leaveRequest?.status === "approved" || leaveRequest?.status === "pending_hr_approval" || leaveRequest?.status === "rejected_by_hr"
+        ? "Approved"
+        : leaveRequest?.status === "rejected"
+          ? "Rejected"
+          : "Pending",
+      approvedBy: "John Doe (Manager)",
+      approvedOn: leaveRequest?.status === "rejected" ? "2025-07-20" : "2025-07-20",
+      comment: leaveRequest?.status === "rejected" ? "Leave request rejected by manager." : "Approved",
+    },
+    hr: {
+      status: leaveRequest?.status === "approved"
+        ? "Approved"
+        : leaveRequest?.status === "rejected_by_hr"
+          ? "Rejected"
+          : "Pending",
+      approvedBy: (typeof window !== 'undefined' && (sessionStorage.getItem("userName") || localStorage.getItem("userName"))) || "",
+      approvedOn: leaveRequest?.hrApprovedOn || "",
+      comment: leaveRequest?.hrComment || "",
+    },
   }
-
-}
-
- 
 
   const getApprovalBadge = (status: string) => {
     switch (status) {
@@ -87,14 +57,48 @@ export function LeaveReviewModalHR({ isOpen, onClose, leaveRequest, isViewOnly =
         return <Badge variant="outline">{status}</Badge>
     }
   }
-   const handleApprove = () => {
-    console.log("Approved Leave with comment:", Comment)
-    onClose()
-  }
+  const [comment, setComment] = useState<string>("")
+  // Load last comment only to prefill if needed; clear on each open by default
+  useEffect(() => {
+    if (isOpen) {
+      // empty by default on open
+      setComment("")
+      // keep a saved copy of last HR comment to reuse if user wants
+      try {
+        const last = sessionStorage.getItem("hrLastDecisionComment")
+        // Do not auto-fill; we just keep it in storage for convenience
+        // If you want prefill behavior, uncomment next line
+        // setComment(last || "")
+      } catch {}
+    }
+  }, [isOpen])
+  const [submitting, setSubmitting] = useState<boolean>(false)
 
-  const handleReject = () => {
-    console.log("Rejected Leave with comment:", Comment)
-    onClose()
+  const callHrAction = async (responseAction: "approved" | "rejected") => {
+    if (!leaveRequest?.id && !leaveRequest?.requestID) return
+    setSubmitting(true)
+    try {
+      const payload = {
+        requestID: leaveRequest.id ?? leaveRequest.requestID,
+        response: responseAction,
+        comment: comment || "",
+      }
+      console.log("[HR Action] Posting decision:", payload)
+      await axios.post("https://localhost:7080/api/Leave/hr-approvals", payload, { withCredentials: true })
+      console.log("[HR Action] Success")
+      // Persist last comment for subsequent reviews
+      try { sessionStorage.setItem("hrLastDecisionComment", comment || "") } catch {}
+      if (responseAction === "approved") {
+        onApprove(comment)
+      } else {
+        onReject(comment)
+      }
+    } catch (e) {
+      console.log("[HR Action] Error:", e)
+    } finally {
+      setSubmitting(false)
+      onClose()
+    }
   }
 
   return (
@@ -178,14 +182,19 @@ export function LeaveReviewModalHR({ isOpen, onClose, leaveRequest, isViewOnly =
             </div>
           </div>
 
-          {/* Comments section (if needed for display, not input) */}
-          {leaveRequest?.comments && (
+          {!isViewOnly && (
             <div>
-              <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">Comments</label>
+              <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">Comment (optional)</label>
               <Textarea
-                value={leaveRequest.comments}
-                readOnly
-                className="min-h-[100px] bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-600 text-gray-900 dark:text-white"
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                placeholder="Add a comment for your decision"
+                disabled={
+                  leaveRequest?.status === "approved" ||
+                  leaveRequest?.status === "rejected_by_hr" ||
+                  leaveRequest?.status === "cancelled_by_emp"
+                }
+                className="min-h-[100px] bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-600 text-gray-900 dark:text-white disabled:opacity-70"
               />
             </div>
           )}
@@ -197,24 +206,24 @@ export function LeaveReviewModalHR({ isOpen, onClose, leaveRequest, isViewOnly =
             ) : (
               <>
                 <Button variant="destructive" 
-                onClick={handleReject} 
+                onClick={() => callHrAction("rejected")} 
                 disabled={
                   !(
                     mockApprovalStatus.manager.status === "Approved" &&
                     mockApprovalStatus.hr.status === "Pending"
-                  )
+                  ) || submitting
                 }
                 className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-4 py-1.5 text-base font-medium rounded-md shadow-sm">
                   <X className="h-2 w-2" />
                   Reject
                 </Button>
                 <Button 
-                onClick={handleApprove}
+                onClick={() => callHrAction("approved")}
                 disabled={
                   !(
                     mockApprovalStatus.manager.status === "Approved" &&
                     mockApprovalStatus.hr.status === "Pending"
-                  )
+                  ) || submitting
                 } 
                 className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-1.5 text-base font-medium rounded-md shadow-sm">
                   <Check className="h-2 w-2" />

@@ -23,6 +23,7 @@ export function AddLeaveTypeModal({ isOpen, onClose, onSave, initialData }: AddL
     colorCode: "",
     status: true, // true for Active, false for Inactive
   })
+  const [errors, setErrors] = useState<{ name?: string; description?: string; colorCode?: string }>({})
 
   useEffect(() => {
     if (isOpen && initialData) {
@@ -43,7 +44,19 @@ export function AddLeaveTypeModal({ isOpen, onClose, onSave, initialData }: AddL
     }
   }, [isOpen, initialData]) // Depend on isOpen and initialData
 
+  const validate = () => {
+    const next: { name?: string; description?: string; colorCode?: string } = {}
+    if (!formData.name.trim()) next.name = "Leave type name is required"
+    if (!formData.description.trim()) next.description = "Description is required"
+    const hex = /^#([0-9A-Fa-f]{6})$/
+    if (!formData.colorCode.trim()) next.colorCode = "Color code is required"
+    else if (!hex.test(formData.colorCode.trim())) next.colorCode = "Color code must be like #RRGGBB"
+    setErrors(next)
+    return Object.keys(next).length === 0
+  }
+
   const handleSave = () => {
+    if (!validate()) return
     onSave({
       ...formData,
       status: formData.status ? "Active" : "Inactive", // Convert boolean back to string
@@ -71,6 +84,7 @@ export function AddLeaveTypeModal({ isOpen, onClose, onSave, initialData }: AddL
               onChange={(e) => setFormData({...formData, name: e.target.value})}
               className="bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-600 text-gray-900 dark:text-white focus:ring-blue-500 focus:border-blue-500"
             />
+            {errors.name && <p className="text-xs text-red-600">{errors.name}</p>}
           </div>
 
           <div className="space-y-2">
@@ -82,6 +96,7 @@ export function AddLeaveTypeModal({ isOpen, onClose, onSave, initialData }: AddL
               onChange={(e) => setFormData({...formData, description: e.target.value})}
               className="min-h-[100px] bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-600 text-gray-900 dark:text-white focus:ring-blue-500 focus:border-blue-500"
             />
+            {errors.description && <p className="text-xs text-red-600">{errors.description}</p>}
           </div>
 
           <div className="space-y-2">
@@ -93,6 +108,7 @@ export function AddLeaveTypeModal({ isOpen, onClose, onSave, initialData }: AddL
               onChange={(e) => setFormData({...formData, colorCode: e.target.value})}
               className="bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-600 text-gray-900 dark:text-white focus:ring-blue-500 focus:border-blue-500"
             />
+            {errors.colorCode && <p className="text-xs text-red-600">{errors.colorCode}</p>}
           </div>
 
           <div className="flex items-center justify-between space-x-2">

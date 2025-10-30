@@ -54,7 +54,24 @@ export const apiClient = {
       throw new Error(`API call failed: ${response.status} ${response.statusText}${errorBody ? ` - ${JSON.stringify(errorBody)}` : ''}`)
     }
     
-    return response.json()
+    // Return JSON when available, otherwise return raw text
+    const contentType = response.headers.get("content-type") || ""
+    if (contentType.includes("application/json")) {
+      try {
+        const json = await response.json()
+        console.log("Parsed JSON response:", json)
+        return json
+      } catch (e) {
+        console.log("Response claimed JSON but failed to parse, falling back to text.")
+        const text = await response.text()
+        console.log("Text response:", text)
+        return text
+      }
+    } else {
+      const text = await response.text()
+      console.log("Non-JSON response body:", text)
+      return text
+    }
   },
 
   get(endpoint: string, options?: RequestInit) {

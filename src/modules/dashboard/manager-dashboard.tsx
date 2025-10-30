@@ -1,26 +1,64 @@
 // == responsive ==
 
- 
+
 "use client"
- 
+
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card"
 import { Badge } from "../../ui/badge"
 import { Clock, UserCheck, TrendingUp } from "lucide-react"
 import { LeaveHistoryModal } from "../../modals/leave-history-modal"
-import { useState } from "react"
- 
+import { useState, useEffect } from "react"
+import { apiClient } from "../../lib/apiClient"
+
 interface ManagerDashboardProps {
   userRoles: string[]
 }
- 
+
 export function ManagerDashboard({ userRoles }: ManagerDashboardProps) {
   const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false)
- 
+  const [missingTimesheetCount, setMissingTimesheetCount] = useState(0)
+  const [pendingTimesheetCount, setPendingTimesheetCount] = useState(0)
+  const [managedUsersCount, setManagedUsersCount] = useState(0)
+
+  useEffect(() => {
+    const fetchDashboardData = async () => {
+      try {
+        // Fetch missing timesheet count
+        const defaultersResponse = await apiClient.get("/Dashboard/getmanagerdefaulters")
+        if (defaultersResponse.data) {
+          setMissingTimesheetCount(defaultersResponse.data.length || 0)
+        }
+
+        // Fetch pending approvals count
+        const pendingApprovalsResponse = await apiClient.get("/Dashboard/getpendingapprovalscount")
+        if (pendingApprovalsResponse.data) {
+          // Handle if response is an object with pendingApprovals property
+          if (typeof pendingApprovalsResponse.data === 'object' && pendingApprovalsResponse.data.pendingApprovals !== undefined) {
+            setPendingTimesheetCount(pendingApprovalsResponse.data.pendingApprovals || 0)
+          } else {
+            // Handle if response is a direct number
+            setPendingTimesheetCount(pendingApprovalsResponse.data || 0)
+          }
+        }
+
+        // Fetch managed users count
+        const managedUsersResponse = await apiClient.get("/Dashboard/getmanagedusers")
+        if (managedUsersResponse.data) {
+          setManagedUsersCount(managedUsersResponse.data.length || 0)
+        }
+      } catch (error) {
+        console.error("Error fetching dashboard data:", error)
+      }
+    }
+
+    fetchDashboardData()
+  }, [])
+
   const handleReviewApprovals = () => {
     alert("Navigating to Review Approvals page...")
     // router.push('/approvals')
   }
- 
+
   return (
     <div className="space-y-6">
       {/* Metric Cards Row - Responsive */}
@@ -31,37 +69,37 @@ export function ManagerDashboard({ userRoles }: ManagerDashboardProps) {
               <Clock className="w-5 h-5 text-white" />
             </div>
             <div>
-              <div className="text-xl font-bold text-black-600">2TS ,4L</div>
+              <div className="text-xl font-bold text-black-600">{pendingTimesheetCount}TS, 4L</div>
               <div className="text-sm text-gray-600">Pending Approvals</div>
             </div>
           </div>
         </div>
- 
+
         <div className="bg-white rounded-lg p-4 border-2 border-green-200">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-green-500 rounded-lg flex items-center justify-center">
               <UserCheck className="w-5 h-5 text-white" />
             </div>
             <div>
-              <div className="text-2xl font-bold text-black-600">24</div>
+              <div className="text-2xl font-bold text-black-600">{managedUsersCount}</div>
               <div className="text-sm text-gray-600">Managed Users</div>
             </div>
           </div>
         </div>
- 
+
         <div className="bg-white rounded-lg p-4 border-2 border-blue-200">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-blue-500 rounded-lg flex items-center justify-center">
               <Clock className="w-5 h-5 text-white" />
             </div>
             <div>
-              <div className="text-2xl font-bold text-black-600">2</div>
+              <div className="text-2xl font-bold text-black-600">{missingTimesheetCount}</div>
               <div className="text-sm text-gray-600">Missing Timesheet</div>
             </div>
           </div>
         </div>
       </div>
- 
+
       {/* Updated Grid Section - Responsive */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Recent Activity (8 cols on desktop) */}
@@ -113,7 +151,7 @@ export function ManagerDashboard({ userRoles }: ManagerDashboardProps) {
             </div>
           </div>
         </div>
- 
+
         {/* Team Status (4 cols on desktop) */}
         <Card className="lg:col-span-4 border-slate-200">
           <CardHeader className="pb-3">
@@ -166,7 +204,7 @@ export function ManagerDashboard({ userRoles }: ManagerDashboardProps) {
           </CardContent>
         </Card>
       </div>
- 
+
       <LeaveHistoryModal isOpen={isLeaveModalOpen} onClose={() => setIsLeaveModalOpen(false)} />
     </div>
   )

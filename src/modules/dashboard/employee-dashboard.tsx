@@ -1,5 +1,5 @@
 "use client"
- 
+
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card"
 import { Button } from "../../ui/button"
 import { Badge } from "../../ui/badge"
@@ -21,30 +21,225 @@ import {
   BarChart3
 } from 'lucide-react'
 import { LeaveHistoryModal } from "../../modals/leave-history-modal"
-import { useState } from "react"
-import { useNavigate } from "react-router-dom" 
+import { useState, useEffect } from "react"
+import { useNavigate } from "react-router-dom"
+import { apiClient } from "../../lib/utils" 
  
 interface EmployeeDashboardProps {
   userRoles: string[]
 }
  
+interface ApproverInfo {
+  userID: number
+  userName: string
+  primaryManagerName: string
+  secondaryManagerName: string
+  modUserName: string
+  modifiedOn: string
+}
+
+interface LeaveSummary {
+  policyName: string
+  leaveTypeName: string
+  maxAllotedPerYear: number
+  remainingLeaves: number
+  usedLeaves: number
+  carryForwardExpiry: string | null
+}
+
+interface LeaveDayDetail {
+  leaveDate: string
+  dayType: string
+}
+
+interface LeaveApprovalWorkflow {
+  statusName: string
+  leaveStartDate: string
+  leaveEndDate: string
+  hrName: string
+  managerName: string
+  reason: string
+  lrApprovalID: number
+  requestID: number
+  userID: number
+  managerID: number
+  managerResponse: string
+  managerComment: string | null
+  hrid: number
+  hrResponse: string | null
+  hrComment: string | null
+  isCancelled: boolean
+  createdBy: number
+  createdOn: string
+  modifiedBy: number
+  modifiedOn: string
+  leaveTypeID: number
+  leaveName: string
+  createdByName: string | null
+  leaveDayDetails: LeaveDayDetail[]
+}
+
+interface MyEngagement {
+  engagementID: number
+  title: string
+  description: string
+  owners: string
+  startDate: string
+  endDate: string
+  teamMembers: string
+  isActive: boolean
+}
+
 export function EmployeeDashboard({ userRoles }: EmployeeDashboardProps) {
   const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false)
-  const [selectedLeave, setSelectedLeave] = useState("upcoming")
+  const [selectedLeaveIndex, setSelectedLeaveIndex] = useState(0)
+  const [pendingTimesheetCount, setPendingTimesheetCount] = useState(0)
+  const [approverInfo, setApproverInfo] = useState<ApproverInfo | null>(null)
+  const [leaveSummary, setLeaveSummary] = useState<LeaveSummary[]>([])
+  const [leaveApprovals, setLeaveApprovals] = useState<LeaveApprovalWorkflow[]>([])
+  const [myEngagements, setMyEngagements] = useState<MyEngagement[]>([])
+  const [loading, setLoading] = useState(true)
   const router = useNavigate()
- 
-  const leaveOptions = [
-    { value: "upcoming", label: "Sept 8, 2025 -- Sick Leave", status: "current" },
-    { value: "aug1-5", label: "Aug 1, 2025-Aug 5, 2025 -- Casual Leave", status: "completed" },
-    { value: "aug18", label: "Aug 18, 2025  -- Casual Leave Half Day", status: "submitted" }
-  ]
 
-  
+  useEffect(() => {
+    const fetchDashboardData = async () => {
+      setLoading(true)
+      try {
+        // First fetch approver info to get userId
+        const approverResponse = await apiClient.get('/Dashboard/getuserapproverinfo')
+        console.log('Approver Info Response:', approverResponse)
+
+        // Set approver info
+        if (approverResponse) {
+          setApproverInfo(approverResponse)
+        }
+
+        const userId = approverResponse?.userID
+
+        // Then fetch other data including leave summary, leave approvals, and engagements
+        const [defaultsResponse, leaveSummaryResponse, leaveApprovalsResponse, myEngagementsResponse] = await Promise.all([
+          apiClient.get('/Dashboard/getemployeedefaults'),
+          userId ? apiClient.get(`/Leave/GetUserLeaveSummaryDetails?userId=${userId}`) : Promise.resolve([]),
+          apiClient.get('/Leave/GetAllLRApprovalWorkflows'),
+          apiClient.get('/Engagement/myengagements')
+        ])
+
+        console.log('Dashboard API Response:', defaultsResponse)
+        console.log('Leave Summary Response:', leaveSummaryResponse)
+        console.log('Leave Approvals Response:', leaveApprovalsResponse)
+        console.log('My Engagements Response:', myEngagementsResponse)
+
+        // Count pending timesheets from the response
+        if (Array.isArray(defaultsResponse)) {
+          // If response is directly an array
+          setPendingTimesheetCount(defaultsResponse.length)
+        } else if (defaultsResponse?.pendingTimesheets && Array.isArray(defaultsResponse.pendingTimesheets)) {
+          // If response has pendingTimesheets property
+          setPendingTimesheetCount(defaultsResponse.pendingTimesheets.length)
+        } else if (defaultsResponse?.data && Array.isArray(defaultsResponse.data)) {
+          // If response has data property
+          setPendingTimesheetCount(defaultsResponse.data.length)
+        } else {
+          setPendingTimesheetCount(0)
+        }
+
+        // Set leave summary
+        if (Array.isArray(leaveSummaryResponse)) {
+          setLeaveSummary(leaveSummaryResponse)
+        }
+
+        // Set leave approvals
+        if (Array.isArray(leaveApprovalsResponse)) {
+          setLeaveApprovals(leaveApprovalsResponse)
+        }
+
+        // Set my engagements
+        if (Array.isArray(myEngagementsResponse)) {
+          setMyEngagements(myEngagementsResponse)
+        }
+      } catch (err) {
+        console.error('Error fetching dashboard data:', err)
+        setPendingTimesheetCount(0)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchDashboardData()
+  }, [])
  
+  // Helper function to format date
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString)
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  }
+
+  // Helper function to format leave label for dropdown
+  const formatLeaveLabel = (leave: LeaveApprovalWorkflow) => {
+    const startDate = formatDate(leave.leaveStartDate)
+    const endDate = formatDate(leave.leaveEndDate)
+
+    if (startDate === endDate) {
+      return `${startDate} -- ${leave.leaveName}`
+    }
+    return `${startDate} - ${endDate} -- ${leave.leaveName}`
+  }
+
+  // Helper function to get leave status stage
+  const getLeaveStatus = (leave: LeaveApprovalWorkflow) => {
+    const managerApproved = leave.managerResponse &&
+      leave.managerResponse.toLowerCase().includes('approved')
+    const hrApproved = leave.hrResponse &&
+      leave.hrResponse.toLowerCase().includes('approved')
+
+    if (hrApproved && managerApproved) {
+      return 'approved'
+    } else if (managerApproved && !hrApproved) {
+      return 'hr-pending'
+    } else if (!managerApproved) {
+      return 'manager-pending'
+    }
+    return 'submitted'
+  }
+
+  // Helper function to get initials from name
+  const getInitials = (name: string | null | undefined) => {
+    if (!name) return 'NA'
+    const parts = name.trim().split(' ')
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[1][0]).toUpperCase()
+    }
+    return name.substring(0, 2).toUpperCase()
+  }
+
+  // Helper function to get remaining leaves by type
+  const getRemainingLeaves = (leaveType: string) => {
+    const leave = leaveSummary.find(l =>
+      l.leaveTypeName.toLowerCase().includes(leaveType.toLowerCase())
+    )
+    return leave?.remainingLeaves ?? 0
+  }
+
+  // Get formatted leave text
+  const getLeaveText = () => {
+    const sickLeaves = getRemainingLeaves('sick')
+    const casualLeaves = getRemainingLeaves('casual')
+    return `${sickLeaves} SL, ${casualLeaves} CL`
+  }
+
   const getProgressStages = () => {
-    const currentLeave = leaveOptions.find(option => option.value === selectedLeave)
-    
-    if (currentLeave?.status === "completed") {
+    if (leaveApprovals.length === 0) {
+      return (
+        <div className="text-center text-gray-500 py-8">
+          No leave requests found
+        </div>
+      )
+    }
+
+    const currentLeave = leaveApprovals[selectedLeaveIndex]
+    const status = getLeaveStatus(currentLeave)
+
+    if (status === "approved") {
       return (
         <div className="flex items-center justify-between relative flex-wrap gap-4">
           <div className="absolute top-4 left-8 right-8 h-0.5 bg-blue-500 hidden md:block"></div>
@@ -58,10 +253,11 @@ export function EmployeeDashboard({ userRoles }: EmployeeDashboardProps) {
           ))}
         </div>
       )
-    } else if (currentLeave?.status === "submitted") {
+    } else if (status === "manager-pending") {
       return (
         <div className="flex items-center justify-between relative flex-wrap gap-4">
           <div className="absolute top-4 left-8 right-8 h-0.5 bg-gray-200 hidden md:block"></div>
+          <div className="absolute top-4 left-8 w-[8%] h-0.5 bg-blue-500 hidden md:block"></div>
           <div className="flex flex-col items-center relative z-10 flex-1">
             <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center mb-2">
               <CheckCircle className="w-4 h-4 text-blue-500" />
@@ -88,11 +284,11 @@ export function EmployeeDashboard({ userRoles }: EmployeeDashboardProps) {
           </div>
         </div>
       )
-    } else {
+    } else if (status === "hr-pending") {
       return (
         <div className="flex items-center justify-between relative flex-wrap gap-4">
           <div className="absolute top-4 left-8 right-8 h-0.5 bg-gray-200 hidden md:block"></div>
-          <div className="absolute top-4 left-8 w-1/3 h-0.5 bg-blue-500 hidden md:block"></div>
+          <div className="absolute top-4 left-8 w-[41%] h-0.5 bg-blue-500 hidden md:block"></div>
           <div className="flex flex-col items-center relative z-10 flex-1">
             <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center mb-2">
               <CheckCircle className="w-4 h-4 text-blue-500" />
@@ -119,6 +315,37 @@ export function EmployeeDashboard({ userRoles }: EmployeeDashboardProps) {
           </div>
         </div>
       )
+    } else {
+      return (
+        <div className="flex items-center justify-between relative flex-wrap gap-4">
+          <div className="absolute top-4 left-8 right-8 h-0.5 bg-gray-200 hidden md:block"></div>
+          <div className="absolute top-4 left-8 w-[8%] h-0.5 bg-blue-500 hidden md:block"></div>
+          <div className="flex flex-col items-center relative z-10 flex-1">
+            <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center mb-2">
+              <CheckCircle className="w-4 h-4 text-blue-500" />
+            </div>
+            <span className="text-sm font-medium text-blue-600">Submitted</span>
+          </div>
+          <div className="flex flex-col items-center relative z-10 flex-1">
+            <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center mb-2">
+              <AlertCircle className="w-4 h-4 text-gray-500" />
+            </div>
+            <span className="text-sm font-medium text-gray-500">Manager Approval</span>
+          </div>
+          <div className="flex flex-col items-center relative z-10 flex-1">
+            <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center mb-2">
+              <AlertCircle className="w-4 h-4 text-gray-500" />
+            </div>
+            <span className="text-sm font-medium text-gray-500">HR Approval</span>
+          </div>
+          <div className="flex flex-col items-center relative z-10 flex-1">
+            <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center mb-2">
+              <AlertCircle className="w-4 h-4 text-gray-500" />
+            </div>
+            <span className="text-sm font-medium text-gray-500">Approved</span>
+          </div>
+        </div>
+      )
     }
   }
  
@@ -133,7 +360,9 @@ export function EmployeeDashboard({ userRoles }: EmployeeDashboardProps) {
               <Clock className="w-5 h-5 text-white" />
             </div>
             <div>
-              <div className="text-2xl font-bold text-black-600">3</div>
+              <div className="text-2xl font-bold text-black-600">
+                {loading ? '...' : pendingTimesheetCount}
+              </div>
               <div className="text-sm text-gray-600">Pending Timesheet</div>
             </div>
           </div>
@@ -154,7 +383,9 @@ export function EmployeeDashboard({ userRoles }: EmployeeDashboardProps) {
               <Calendar className="w-5 h-5 text-white" />
             </div>
             <div>
-              <div className="text-lg font-bold text-black-600">7 SL, 6 CL</div>
+              <div className="text-lg font-bold text-black-600">
+                {loading ? 'Loading...' : getLeaveText()}
+              </div>
               <div className="text-sm text-gray-600">Total Leaves Remaining</div>
             </div>
           </div>
@@ -179,18 +410,23 @@ export function EmployeeDashboard({ userRoles }: EmployeeDashboardProps) {
         <div className="md:col-span-8 bg-white rounded-lg p-6 shadow-sm border">
           <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-3">
             <h3 className="text-lg font-semibold text-gray-800">Leave Approval Progress</h3>
-            <Select value={selectedLeave} onValueChange={setSelectedLeave}>
-              <SelectTrigger className="w-full md:w-[290px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {leaveOptions.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {leaveApprovals.length > 0 && (
+              <Select
+                value={selectedLeaveIndex.toString()}
+                onValueChange={(value) => setSelectedLeaveIndex(parseInt(value))}
+              >
+                <SelectTrigger className="w-full md:w-[380px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {leaveApprovals.map((leave, index) => (
+                    <SelectItem key={leave.lrApprovalID} value={index.toString()}>
+                      {formatLeaveLabel(leave)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
           {getProgressStages()}
         </div>
@@ -206,20 +442,28 @@ export function EmployeeDashboard({ userRoles }: EmployeeDashboardProps) {
             <div className="space-y-4">
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center">
-                  <span className="text-sm font-semibold text-gray-500">PU</span>
+                  <span className="text-sm font-semibold text-gray-500">
+                    {loading ? '...' : getInitials(approverInfo?.primaryManagerName)}
+                  </span>
                 </div>
                 <div>
                   <p className="text-xs text-gray-400 font-medium">Primary Approver</p>
-                  <p className="text-sm font-semibold text-gray-600">Paritosh Unakar</p>
+                  <p className="text-sm font-semibold text-gray-600">
+                    {loading ? 'Loading...' : (approverInfo?.primaryManagerName || 'Not Assigned')}
+                  </p>
                 </div>
               </div>
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center">
-                  <span className="text-sm font-semibold text-gray-500">NA</span>
+                  <span className="text-sm font-semibold text-gray-500">
+                    {loading ? '...' : getInitials(approverInfo?.secondaryManagerName)}
+                  </span>
                 </div>
                 <div>
                   <p className="text-xs text-gray-400 font-medium">Secondary Approver</p>
-                  <p className="text-sm font-semibold text-gray-600">Not Assigned</p>
+                  <p className="text-sm font-semibold text-gray-600">
+                    {loading ? 'Loading...' : (approverInfo?.secondaryManagerName || 'Not Assigned')}
+                  </p>
                 </div>
               </div>
             </div>
@@ -302,35 +546,28 @@ export function EmployeeDashboard({ userRoles }: EmployeeDashboardProps) {
             <BarChart3 className="w-5 h-5 text-black-600" />
             <h3 className="font-semibold text-black-800">My Engagements</h3>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            <div className="bg-white rounded-lg p-4 border-l-4 border-blue-400">
-              <p className="font-semibold text-gray-800">Smart Attendance System</p>
-              <p className="text-sm text-gray-400">Uses facial recognition and geofencing to automate employee attendance tracking.</p>
+          {loading ? (
+            <div className="text-center text-gray-500 py-8">
+              Loading engagements...
             </div>
-            <div className="bg-white rounded-lg p-4 border-l-4 border-green-400">
-              <p className="font-semibold text-gray-800">AI Chatbot for Customer Support</p>
-              <p className="text-sm text-gray-400">A machine learning-powered assistant that answers user queries 24/7 across platforms.</p>
+          ) : myEngagements.length === 0 ? (
+            <div className="text-center text-gray-500 py-8">
+              No engagements found
             </div>
-            <div className="bg-white rounded-lg p-4 border-l-4 border-blue-400">
-              <p className="font-semibold text-gray-800">IoT-Based Home Automation</p>
-              <p className="text-sm text-gray-400">Controls lights, appliances, and security remotely via a mobile app.</p>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {myEngagements.map((engagement, index) => {
+                const colors = ['blue', 'green', 'yellow', 'purple', 'pink', 'indigo']
+                const color = colors[index % colors.length]
+                return (
+                  <div key={engagement.engagementID} className={`bg-white rounded-lg p-4 border-l-4 border-${color}-400`}>
+                    <p className="font-semibold text-gray-800">{engagement.title}</p>
+                    <p className="text-sm text-gray-400">{engagement.description}</p>
+                  </div>
+                )
+              })}
             </div>
-          </div>
-          <br />
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            <div className="bg-white rounded-lg p-4 border-l-4 border-yellow-400">
-              <p className="font-semibold text-gray-800">Blockchain Voting Platform</p>
-              <p className="text-sm text-gray-400">Enables secure and transparent online voting using decentralized ledger technology.</p>
-            </div>
-            <div className="bg-white rounded-lg p-4 border-l-4 border-purple-400">
-              <p className="font-semibold text-gray-800">E-commerce Product Recommendation Engine</p>
-              <p className="text-sm text-gray-400">Suggests personalized products using user behavior and purchase history via machine learning.</p>
-            </div>
-            <div className="bg-white rounded-lg p-4 border-l-4 border-yellow-400">
-              <p className="font-semibold text-gray-800">Real-Time Traffic Monitoring System</p>
-              <p className="text-sm text-gray-400">Analyzes live traffic data using computer vision to optimize signal timings and reduce congestion.</p>
-            </div>
-          </div>
+          )}
         </div>
       </div>
  

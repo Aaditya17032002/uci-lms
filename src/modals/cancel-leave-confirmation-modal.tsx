@@ -17,11 +17,7 @@ export function CancelLeaveConfirmationModal({ isOpen, onClose, onConfirm, leave
   const handleConfirm = () => {
     if (leaveId !== null) {
       onConfirm(leaveId)
-      toast({
-        title: "Leave Cancelled",
-        description: `Leave request #${leaveId} has been cancelled.`,
-        duration: 3000,
-      })
+      
     }
     onClose()
   }

@@ -2,20 +2,47 @@
 
 
 "use client"
- 
+
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card"
 import { Badge } from "../../ui/badge"
 import { AlertTriangle, Calendar, Building, TrendingUp, AlertOctagon } from "lucide-react"
 import { LeaveHistoryModal } from "../../modals/leave-history-modal"
-import { useState } from "react"
- 
+import { useState, useEffect } from "react"
+import { apiClient } from "../../lib/apiClient"
+
 interface HRDashboardProps {
   userRoles: string[]
 }
- 
+
 export function HRDashboard({ userRoles }: HRDashboardProps) {
   const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false)
- 
+  const [pendingLeaveApprovalsCount, setPendingLeaveApprovalsCount] = useState(0)
+  const [missingPrimaryApproverCount, setMissingPrimaryApproverCount] = useState(0)
+  const [missingSecondaryApproverCount, setMissingSecondaryApproverCount] = useState(0)
+
+  useEffect(() => {
+    const fetchDashboardData = async () => {
+      try {
+        // Fetch pending leave approvals count
+        const leaveApprovalsResponse = await apiClient.post("/Leave/hr-approvals")
+        if (leaveApprovalsResponse.data) {
+          setPendingLeaveApprovalsCount(leaveApprovalsResponse.data.length || 0)
+        }
+
+        // Fetch missing approver counts
+        const approverCountResponse = await apiClient.get("/Dashboard/getmissingapprovercount")
+        if (approverCountResponse.data) {
+          setMissingPrimaryApproverCount(approverCountResponse.data.noApproverCount || 0)
+          setMissingSecondaryApproverCount(approverCountResponse.data.noSecApproverCount || 0)
+        }
+      } catch (error) {
+        console.error("Error fetching dashboard data:", error)
+      }
+    }
+
+    fetchDashboardData()
+  }, [])
+
   return (
     <div className="space-y-6">
       {/* Metric Cards Row */}
@@ -26,37 +53,37 @@ export function HRDashboard({ userRoles }: HRDashboardProps) {
               <Calendar className="w-5 h-5 text-white" />
             </div>
             <div>
-              <div className="text-2xl font-bold text-black-600">4</div>
+              <div className="text-2xl font-bold text-black-600">{pendingLeaveApprovalsCount}</div>
               <div className="text-sm text-gray-500">Pending Leave Approvals</div>
             </div>
           </div>
         </div>
- 
+
         <div className="bg-white rounded-lg p-4 border-2 border-green-200">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-green-500 rounded-lg flex items-center justify-center">
               <AlertTriangle className="w-5 h-5 text-white" />
             </div>
             <div>
-              <div className="text-lg font-bold text-black-600">2</div>
+              <div className="text-lg font-bold text-black-600">{missingPrimaryApproverCount}</div>
               <div className="text-sm text-gray-500">Missing Primary Approver</div>
             </div>
           </div>
         </div>
- 
+
         <div className="bg-white rounded-lg p-4 border-2 border-blue-200">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-blue-500 rounded-lg flex items-center justify-center">
               <AlertOctagon className="w-5 h-5 text-white" />
             </div>
             <div>
-              <div className="text-2xl font-bold text-black-600">9</div>
+              <div className="text-2xl font-bold text-black-600">{missingSecondaryApproverCount}</div>
               <div className="text-sm text-gray-500">Missing Secondary Approver</div>
             </div>
           </div>
         </div>
       </div>
- 
+
       {/* Main Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Office Attendance Overview */}
@@ -96,7 +123,7 @@ export function HRDashboard({ userRoles }: HRDashboardProps) {
             </CardContent>
           </Card>
         </div>
- 
+
         {/* Recent Activity */}
         <div className="lg:col-span-4 border-slate-200">
 
@@ -148,7 +175,7 @@ export function HRDashboard({ userRoles }: HRDashboardProps) {
           </div>
         </div>
       </div>
- 
+
       <LeaveHistoryModal isOpen={isLeaveModalOpen} onClose={() => setIsLeaveModalOpen(false)} />
     </div>
   )

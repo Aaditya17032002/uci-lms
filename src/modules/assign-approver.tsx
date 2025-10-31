@@ -227,30 +227,12 @@ export function AssignApproverPage({ isDarkMode }: { isDarkMode?: boolean }) {
 
   return (
     <div className={`p-6 space-y-6 ${isDarkMode ? 'text-white bg-gray-900' : 'text-gray-900 bg-gray-50'}`}>
-      {/* Rules & Guidelines */}
-      <Collapsible open={isRulesOpen} onOpenChange={setIsRulesOpen}>
-        <CollapsibleTrigger asChild>
-          <Button variant="ghost" className="flex items-center gap-2 p-0 h-auto text-blue-600 hover:text-blue-700">
-            <Info className="w-4 h-4" />
-            <span className="font-medium">Rules & Guidelines</span>
-            <ChevronDown className={`w-4 h-4 transition-transform ${isRulesOpen ? 'rotate-180' : ''}`} />
-          </Button>
-        </CollapsibleTrigger>
-        <CollapsibleContent className="mt-3">
-          <div className={`p-4 rounded-lg border ${isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-300' : 'bg-blue-50 border-blue-200 text-blue-800'}`}>
-            <ul className="space-y-2 text-sm">
-              <li>• User and Primary Approver are mandatory while Assigning.</li>
-              <li>• Only Managers can be Primary Approvers.</li>
-              <li>• User cannot be their own Approver (Primary or Secondary).</li>
-              <li>• Primary and Secondary Approver cannot be same.</li>
-            </ul>
-          </div>
-        </CollapsibleContent>
-      </Collapsible>
+      
 
       {/* Card Table */}
       <Card className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm">
         <CardHeader className="border-b border-gray-100 dark:border-gray-700 bg-white dark:bg-gray-800 p-6">
+          
           <div className="flex items-center justify-between">
             <CardTitle className="text-2xl font-semibold text-gray-900 dark:text-white flex items-center gap-2">
               <UserCheck className="h-6 w-6 text-blue-600" /> Assign Approver
@@ -265,7 +247,28 @@ export function AssignApproverPage({ isDarkMode }: { isDarkMode?: boolean }) {
               <Plus className="h-4 w-4" /> Assign New
             </Button>
           </div>
+          {/* Rules & Guidelines */}
+      <Collapsible open={isRulesOpen} onOpenChange={setIsRulesOpen}>
+        <CollapsibleTrigger asChild>
+          <Button variant="ghost" className="flex items-center gap-2 p-0 h-auto text-blue-600 hover:text-blue-700">
+            <Info className="w-4 h-4" />
+            <span className="font-medium">Assignee Guidelines</span>
+            <ChevronDown className={`w-4 h-4 transition-transform ${isRulesOpen ? 'rotate-180' : ''}`} />
+          </Button>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="mt-3">
+          <div className={`p-4 rounded-lg border ${isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-300' : 'bg-blue-50 border-blue-200 text-blue-800'}`}>
+            <ul className="space-y-2 text-sm">
+              <li>• User and Primary Approver are mandatory while Assigning.</li>
+              <li>• Only Managers can be Primary Approvers.</li>
+              <li>• User cannot be their own Approver (Primary or Secondary).</li>
+              <li>• Primary and Secondary Approver cannot be same.</li>
+            </ul>
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
         </CardHeader>
+        
 
         <CardContent className="p-0">
           <div className="overflow-y-auto max-h-[400px]">

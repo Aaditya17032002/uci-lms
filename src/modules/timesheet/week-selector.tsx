@@ -13,9 +13,10 @@ interface WeekSelectorProps {
   onWeekSelect: (week: string) => void
   rejectedRanges?: { timesheetID: number; startDate: string; endDate: string }[]
   selectedDate?: string // Add selected date prop
+  maxSelectableISO?: string // End date (ISO yyyy-MM-dd) for current TS; caps calendar
 }
 
-export function WeekSelector({ isOpen, onClose, currentWeek, onWeekSelect, rejectedRanges = [], selectedDate: selectedDateProp }: WeekSelectorProps) {
+export function WeekSelector({ isOpen, onClose, currentWeek, onWeekSelect, rejectedRanges = [], selectedDate: selectedDateProp, maxSelectableISO }: WeekSelectorProps) {
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date())
   const [showWarning, setShowWarning] = useState(false)
   const [hasValidSelection, setHasValidSelection] = useState(false)
@@ -24,26 +25,27 @@ export function WeekSelector({ isOpen, onClose, currentWeek, onWeekSelect, rejec
 
   useEffect(() => {
     if (!isOpen) return
-    // Fetch the current filling week's range to disable selecting future weeks until it's submitted
-    const loadCurrentWeek = async () => {
-      try {
-        const res = await fetch(`https://localhost:7080/api/timesheet/v1`, { credentials: "include" })
-        if (res.ok) {
-          const payload = await res.json()
-          const data = payload?.data
-          if (data?.endDate) {
-            // Allow selection up to today, not just the current week's end date
-            const today = new Date()
-            const currentWeekEnd = new Date(data.endDate)
-            setMaxSelectableDate(today > currentWeekEnd ? today : currentWeekEnd)
-            //setMaxSelectableDate(currentWeekEnd)
+    // Prefer parent-provided cap; fallback to fetching only if not provided
+    if (maxSelectableISO) {
+      setMaxSelectableDate(new Date(maxSelectableISO))
+    } else {
+      const loadCurrentWeek = async () => {
+        try {
+          const res = await fetch(`https://localhost:7080/api/timesheet/v1`, { credentials: "include" })
+          if (res.ok) {
+            const payload = await res.json()
+            const data = payload?.data
+            if (data?.endDate) {
+              const currentWeekEnd = new Date(data.endDate)
+              setMaxSelectableDate(currentWeekEnd)
+            }
           }
+        } catch {
+          // ignore and keep calendar unrestricted
         }
-      } catch {
-        // ignore and keep calendar unrestricted
       }
+      loadCurrentWeek()
     }
-    loadCurrentWeek()
     // Parse currentWeek string to set default month/year in the calendar
     try {
       const [range, yearStr] = currentWeek.split(", ")
@@ -82,16 +84,11 @@ export function WeekSelector({ isOpen, onClose, currentWeek, onWeekSelect, rejec
   const handleDateSelect = (date: Date | undefined) => {
     if (date) {
       setSelectedDate(date)
-      const today = new Date() // Current date
-      if (date > today) {
+      const maxDate = maxSelectableDate || new Date()
+      if (date > maxDate) {
         setShowWarning(true)
         setHasValidSelection(false)
       } 
-  //     const maxDate = maxSelectableDate || new Date()
-  //     if (date > maxDate) {
-  //       setShowWarning(true)
-  //       setHasValidSelection(false)
-  //  }
       else {
         setShowWarning(false)
         setHasValidSelection(true)

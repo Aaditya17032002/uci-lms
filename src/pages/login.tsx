@@ -40,6 +40,10 @@ export default function LoginPage() {
                     localStorage.setItem("userName", data.user.username);
                     console.log("Saved username:", data.user.username);
                 }
+                if (data.user.email) {
+                    localStorage.setItem("userEmail", data.user.email);
+                    console.log("Saved userEmail:", data.user.email);
+                }
                 console.log("Saved roles:", data.user.roles);
                 console.log("Full user data:", data.user);
 

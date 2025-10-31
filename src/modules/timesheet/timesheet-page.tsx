@@ -964,18 +964,15 @@ export function TimesheetPage() {
                       const monthsAbbr: Record<string, number> = { Jan:0, Feb:1, Mar:2, Apr:3, May:4, Jun:5, Jul:6, Aug:7, Sep:8, Oct:9, Nov:10, Dec:11 }
                       const parsePart = (p: string) => { const [m, d] = p.split(" "); return { m: monthsAbbr[m], d: parseInt(d,10) } }
                       const sPart = parsePart(startStr)
-                      const ePart = parsePart(endStr)
                       const yr = parseInt(yearStr,10)
                       const sDate = new Date(yr, sPart.m, sPart.d)
-                      const eDate = new Date(yr, ePart.m, ePart.d)
                       const toISO = (d: Date) => `${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2,'0')}-${d.getDate().toString().padStart(2,'0')}`
                       const currentStartISO = toISO(sDate)
-                      const currentEndISO = toISO(eDate)
-                      const isCurrentWeek = currentStartISO === v1CurrentStartISO && currentEndISO === v1CurrentEndISO
+                      // Consider week the same if the Monday matches the v1 Monday (end may differ Fri vs Sun)
+                      const isCurrentWeek = currentStartISO === v1CurrentStartISO
                       console.log('Go to Current TS disabled check:', {
                         currentWeek,
                         currentStartISO,
-                        currentEndISO,
                         v1CurrentStartISO,
                         v1CurrentEndISO,
                         isCurrentWeek
@@ -1576,6 +1573,7 @@ export function TimesheetPage() {
         currentWeek={currentWeek}
         rejectedRanges={rejectedRanges}
         selectedDate={selectedDate}
+        maxSelectableISO={v1CurrentEndISO ?? undefined}
         onWeekSelect={(week) => {
           setCurrentWeek(week)
           // derive Monday from label

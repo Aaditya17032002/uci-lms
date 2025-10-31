@@ -460,6 +460,26 @@
                     New Engagement
                   </Button>
                 </div>
+                {/* Engagement Guidelines */}
+          <Collapsible open={isRulesOpen} onOpenChange={setIsRulesOpen}>
+            <CollapsibleTrigger asChild>
+              <Button variant="ghost" className="flex items-center gap-2 p-0 h-auto text-blue-600 hover:text-blue-700">
+                <Info className="w-4 h-4" />
+                <span className="font-medium">Engagement Guidelines</span>
+                <ChevronDown className={`w-4 h-4 transition-transform ${isRulesOpen ? 'rotate-180' : ''}`} />
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="mt-3">
+              <div className={`p-4 rounded-lg border ${isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-300' : 'bg-blue-50 border-blue-200 text-blue-800'}`}>
+                <ul className="space-y-2 text-sm">
+                  <li>• Team Member Dates are in sync with Engagement Dates. Any changes to Engagement Dates will be reflected in Team Member Dates as well.</li>
+                  <li>• The creator of Engagement will be added as Owner and Team Member by default.</li>
+                  <li>• Co-Owner will be added as Team Member by default.</li>
+                  <li>• Copying the Engagement will copy all the Details of that Engagement. Any changes will need to be made manually.</li>
+                </ul>
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
 
                 {/* Search and Filter Controls */}
                 <div className="flex flex-col sm:flex-row gap-4">
@@ -522,26 +542,7 @@
                   {(searchTerm || filterStatus !== 'all' || filterOwner !== 'all') && ` (filtered from ${engagements.length} total)`}
                 </div>
               </div>
-              {/* Engagement Guidelines */}
-          <Collapsible open={isRulesOpen} onOpenChange={setIsRulesOpen}>
-            <CollapsibleTrigger asChild>
-              <Button variant="ghost" className="flex items-center gap-2 p-0 h-auto text-blue-600 hover:text-blue-700">
-                <Info className="w-4 h-4" />
-                <span className="font-medium">Engagement Guidelines</span>
-                <ChevronDown className={`w-4 h-4 transition-transform ${isRulesOpen ? 'rotate-180' : ''}`} />
-              </Button>
-            </CollapsibleTrigger>
-            <CollapsibleContent className="mt-3">
-              <div className={`p-4 rounded-lg border ${isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-300' : 'bg-blue-50 border-blue-200 text-blue-800'}`}>
-                <ul className="space-y-2 text-sm">
-                  <li>• Team Member Dates are in sync with Engagement Dates. Any changes to Engagement Dates will be reflected in Team Member Dates as well.</li>
-                  <li>• The creator of Engagement will be added as Owner and Team Member by default.</li>
-                  <li>• Co-Owner will be added as Team Member by default.</li>
-                  <li>• Copying the Engagement will copy all the Details of that Engagement. Any changes will need to be made manually.</li>
-                </ul>
-              </div>
-            </CollapsibleContent>
-          </Collapsible>
+              
             </CardHeader>
             <CardContent className="p-0 overflow-x-auto">
               <Table className="min-w-[800px]">

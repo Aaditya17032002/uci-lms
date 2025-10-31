@@ -590,17 +590,21 @@
                     </TableHead>
                     <TableHead className="font-semibold text-gray-700 dark:text-gray-200">Team Members</TableHead>
                     <TableHead className="font-semibold text-gray-700 dark:text-gray-200">Tasks</TableHead>
-                    <TableHead className="font-semibold text-gray-700 dark:text-gray-200">
-                      <Button
-                        variant="ghost"
-                        className="h-auto p-0 font-semibold hover:bg-transparent flex items-center gap-2"
-                        onClick={() => handleSort('isActive')}
-                      >
-                        Status
-                        {getSortIcon('isActive')}
-                      </Button>
+                    <TableHead
+                      className="font-semibold text-gray-700 dark:text-gray-200 sticky right-0 bg-gray-50 dark:bg-gray-700 z-30 min-w-[12rem]"
+                    >
+                      <div className="flex justify-between items-center w-full">
+                        <Button
+                          variant="ghost"
+                          className="h-auto p-0 font-semibold hover:bg-transparent flex items-center gap-2"
+                          onClick={() => handleSort('isActive')}
+                        >
+                          Status
+                          {getSortIcon('isActive')}
+                        </Button>
+                        <span className="font-semibold">Action</span>
+                      </div>
                     </TableHead>
-                    <TableHead className="w-32 font-semibold text-gray-700 dark:text-gray-200">Action</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -633,35 +637,39 @@
                         {engagement.teamMembers.map(member => member.teamMemberName).join(', ') || '—'}
                       </TableCell>
                       <TableCell className="text-gray-700 dark:text-gray-200">{engagement.tasks?.length || 0}</TableCell>
-                      <TableCell>
-                        <Badge
-                          variant="outline"
-                          className={engagement.isActive
-                            ? "border-green-200 text-green-700 bg-green-50 dark:border-green-700 dark:text-green-300 dark:bg-green-900/20"
-                            : "border-red-200 text-red-700 bg-red-50 dark:border-red-700 dark:text-red-300 dark:bg-red-900/20"
-                          }
-                        >
-                          {engagement.isActive ? 'Active' : 'Inactive'}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleEdit(engagement)}
-                            className="h-8 w-8 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-600"
+                      <TableCell className="sticky right-0 bg-white dark:bg-gray-800 z-20 min-w-[12rem]">
+                        <div className="flex justify-between items-center gap-3">
+                          {/* Status Badge */}
+                          <Badge
+                            variant="outline"
+                            className={
+                              engagement.isActive
+                                ? "border-green-200 text-green-700 bg-green-50 dark:border-green-700 dark:text-green-300 dark:bg-green-900/20"
+                                : "border-red-200 text-red-700 bg-red-50 dark:border-red-700 dark:text-red-300 dark:bg-red-900/20"
+                            }
                           >
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleDelete(engagement)}
-                            className="h-8 w-8 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                            {engagement.isActive ? "Active" : "Inactive"}
+                          </Badge>
+
+                          {/* Action Buttons */}
+                          <div className="flex items-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleEdit(engagement)}
+                              className="h-8 w-8 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-600"
+                            >
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleDelete(engagement)}
+                              className="h-8 w-8 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
                         </div>
                       </TableCell>
                     </TableRow>

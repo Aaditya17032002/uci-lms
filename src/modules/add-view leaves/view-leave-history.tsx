@@ -374,9 +374,7 @@ export function ViewLeaveHistory() {
                           size="sm"
                           variant="outline"
                           onClick={() => handleEditLeave(leave)}
-                          disabled={["approved", "rejected"].includes(
-                            leave.status
-                          )}
+                          disabled={new Date(leave.startDate) <= new Date()}
                         >
                           <Pencil className="h-4 w-4" />
                         </Button>
@@ -388,16 +386,17 @@ export function ViewLeaveHistory() {
                           <Eye className="h-4 w-4" />
                         </Button>
                         <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={["approved", "rejected"].includes(
-                            leave.status
-                          )}
-                          onClick={() => handleCancelClick(leave.id)}
-                          className="text-gray-700 dark:text-gray-300 flex items-center gap-2"
-                        >
-                          <Ban className="h-4 w-4" />
-                          Cancel
+                            size="sm"
+                            variant="outline"
+                            disabled={
+                              ["approved", "rejected", "cancelled"].includes(leave.status) ||
+                              new Date(leave.startDate) <= new Date() // disable if started or past
+                            }
+                            onClick={() => handleCancelClick(leave.id)}
+                            className="text-gray-700 dark:text-gray-300 flex items-center gap-2"
+                          >
+                            <Ban className="h-4 w-4" />
+                            Cancel
                         </Button>
                       </TableCell>
                       <TableCell className="p-4">

@@ -377,13 +377,15 @@ const disableInvalidDates = (date: Date) => disableWeekends(date) || disablePast
                       onSelect={(date) => {
                         if (!date) return
                         setStartDate(date)
-                        setIsStartPickerOpen(false) // ✅ closes the popover
+                        setEndDate(date) // ✅ preselect end date to start date
+                        setIsStartPickerOpen(false)
+                        setTimeout(() => setIsEndPickerOpen(true), 150) // ✅ auto-open end picker
                         if (endDate && date > endDate) {
                           setEndDate(undefined)
                           setNotification({
-                            message: "End date has been cleared because it cannot be before start date.",
+                            message: "End date cannot be before start date.",
                             type: "error",
-                          });
+                          })
                         }
                       }}
                       disabled={disableInvalidDates}
@@ -407,52 +409,62 @@ const disableInvalidDates = (date: Date) => disableWeekends(date) || disablePast
               End Date
             </Label>
             <Popover open={isEndPickerOpen} onOpenChange={setIsEndPickerOpen}>
-              <PopoverTrigger asChild>
-                <Button
-                  variant={"outline"}
-                  className={cn(
-                    "w-full justify-start text-left font-normal bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-600 text-gray-900 dark:text-white",
-                    !endDate && "text-gray-500 dark:text-gray-400",
-                  )}
-                >
-                  <CalendarIcon className="mr-2 h-4 w-4" />
-                  {endDate ? format(endDate, "dd-MM-yyyy") : "dd-mm-yyyy"}
-                </Button>
-              </PopoverTrigger>
-                <PopoverContent
-                  align="start"
-                  sideOffset={8}
-                  className="w-auto bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl shadow-2xl animate-in fade-in-80">
-                  
-                    <Calendar
-                      mode="single"
-                      selected={endDate}
-                      onSelect={(date) => {
-                        if (!date) return;
+            <PopoverTrigger asChild>
+              <Button
+                variant={"outline"}
+                className={cn(
+                  "w-full justify-start text-left font-normal bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-600 text-gray-900 dark:text-white",
+                  !endDate && "text-gray-500 dark:text-gray-400",
+                )}
+              >
+                <CalendarIcon className="mr-2 h-4 w-4" />
+                {endDate ? format(endDate, "dd-MM-yyyy") : "dd-mm-yyyy"}
+              </Button>
+            </PopoverTrigger>
 
-                        if (startDate && date < startDate) {
-                          setNotification({ message: "End date cannot be before start date.", type: "error" });
-                          return; // don't set invalid end date
-                        }
+            <PopoverContent
+              align="start"
+              sideOffset={8}
+              className="w-auto bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl shadow-2xl animate-in fade-in-80"
+            >
+              <Calendar
+                mode="single"
+                selected={endDate || startDate} // ✅ select start date if end date not chosen yet
+                defaultMonth={startDate}        // ✅ open same month as start date
+                onSelect={(date) => {
+                  if (!date) return
 
-                        setEndDate(date);
-                        setIsEndPickerOpen(false) // ✅ closes the popover
-                      }}
-                    disabled={disableInvalidDates}
-                    className={cn(
-                      "rounded-xl text-sm font-medium shadow-inner bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100 p-3",
-                      "[&_.rdp-head_cell]:text-gray-500 dark:[&_.rdp-head_cell]:text-gray-400",
-                      "[&_.rdp-day]:h-9 [&_.rdp-day]:w-9 [&_.rdp-day]:rounded-full [&_.rdp-day]:transition-all [&_.rdp-day]:duration-150",
-                      "[&_.rdp-day:hover]:bg-gray-200 dark:[&_.rdp-day:hover]:bg-gray-700",
-                      "[&_.rdp-day_selected]:bg-green-600 [&_.rdp-day_selected]:text-white [&_.rdp-day_selected:hover]:bg-green-700",
-                      "[&_.rdp-day_today]:border [&_.rdp-day_today]:border-green-600 [&_.rdp-day_today]:font-bold",
-                      "[&_.rdp-day_disabled]:text-gray-400 [&_.rdp-day_disabled]:opacity-40 [&_.rdp-day_disabled]:line-through"
-                    )}
-                    initialFocus
-                  />
-                
-              </PopoverContent>
-            </Popover>
+                  if (startDate && date < startDate) {
+                    setNotification({ message: "End date cannot be before start date.", type: "error" })
+                    return
+                  }
+
+                  setEndDate(date)
+                  setIsEndPickerOpen(false)
+                }}
+                disabled={(date) => {
+                  const today = new Date()
+                  today.setHours(0, 0, 0, 0)
+
+                  return (
+                    isWeekend(date) ||
+                    date < today ||
+                    (startDate ? date < startDate : false)
+                  )
+                }}
+                className={cn(
+                  "rounded-xl text-sm font-medium shadow-inner bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100 p-3",
+                  "[&_.rdp-head_cell]:text-gray-500 dark:[&_.rdp-head_cell]:text-gray-400",
+                  "[&_.rdp-day]:h-9 [&_.rdp-day]:w-9 [&_.rdp-day]:rounded-full [&_.rdp-day]:transition-all [&_.rdp-day]:duration-150",
+                  "[&_.rdp-day:hover]:bg-gray-200 dark:[&_.rdp-day:hover]:bg-gray-700",
+                  "[&_.rdp-day_selected]:bg-green-600 [&_.rdp-day_selected]:text-white [&_.rdp-day_selected:hover]:bg-green-700",
+                  "[&_.rdp-day_today]:border [&_.rdp-day_today]:border-green-600 [&_.rdp-day_today]:font-bold",
+                  "[&_.rdp-day_disabled]:text-gray-400 [&_.rdp-day_disabled]:opacity-40 [&_.rdp-day_disabled]:line-through"
+                )}
+                initialFocus
+              />
+            </PopoverContent>
+          </Popover>
           </div>
         </div>
 

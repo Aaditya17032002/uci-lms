@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "start": "react-scripts start",
+    "start": "npx serve -s build -l 8080",
     "build": "CI=false react-scripts build",
     "start:qa": "cross-env NODE_ENV=qa react-scripts start",
     "build:qa": "cross-env NODE_ENV=qa react-scripts build",

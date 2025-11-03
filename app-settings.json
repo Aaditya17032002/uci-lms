@@ -1,0 +1,33 @@
+[
+  {
+    "name": "REACT_APP_NAME",
+    "value": "TMS",
+    "slotSetting": false
+  },
+  {
+    "name": "PORT",
+    "value": "3000",
+    "slotSetting": false
+  },
+  {
+    "name": "REACT_APP_SYS_ENV",
+    "value": "dev",
+    "slotSetting": false
+  },
+  {
+    "name": "REACT_APP_AAD_CLIENT_ID",
+    "value": "f6b6f12e-8160-4f68-bdc4-c7c9a9c19019",
+    "slotSetting": false
+  },
+  {
+    "name": "REACT_APP_AAD_TENANT_ID",
+    "value": "73136b73-224c-40dc-8a8d-03e6ab8917d8",
+    "slotSetting": false
+  },
+  {
+    "name": "REACT_APP_AAD_REDIRECT_URI",
+    "value": "http://localhost:3000",
+    "slotSetting": false
+  }
+]
+

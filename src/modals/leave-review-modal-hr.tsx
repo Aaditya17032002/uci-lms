@@ -7,6 +7,7 @@ import { Textarea } from "../ui/textarea"
 import { Button } from "../ui/button"
 import { CheckCircle, XCircle, Clock, X, Check } from 'lucide-react' // Added icons for approval status
 import axios from "axios"
+import { apiClient } from "../lib/apiClient"
 
 interface LeaveReviewModalHRProps {
   isOpen: boolean
@@ -22,16 +23,70 @@ export function LeaveReviewModalHR({ isOpen, onClose, leaveRequest, isViewOnly =
   // Mock data for manager and HR approval status
   // In a real app, this would come from leaveRequest or a separate fetch
   console.log("leaveRequest.status [inside leavereviwmodal func]:", leaveRequest?.status);
+  const formatDateTime = (value?: string) => {
+    if (!value) return "";
+    try {
+      const d = new Date(value)
+      return `${d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`.replace(/\s/g, "-")
+    } catch {
+      return value
+    }
+  }
+
+  // Derive manager details from leaveRequest if present
+  const managerName = (leaveRequest?.managerName || leaveRequest?.approvedByName || leaveRequest?.modifiedByName)
+  const [resolvedManagerName, setResolvedManagerName] = useState<string>("")
+
+  useEffect(() => {
+    const resolveName = async () => {
+      try {
+        if (!managerName && leaveRequest?.modUser && leaveRequest.modUser !== 0) {
+          const res = await apiClient.get("/user/getallusers")
+          const users: any[] = res?.data?.users || res?.data || []
+          const match = users.find((u: any) => (u.userID ?? u.UserID) === leaveRequest.modUser)
+          if (match) {
+            setResolvedManagerName(match.userName ?? match.UserName ?? "")
+          }
+        } else {
+          setResolvedManagerName("")
+        }
+      } catch {
+        setResolvedManagerName("")
+      }
+    }
+    if (isOpen) resolveName()
+  }, [isOpen, managerName, leaveRequest?.modUser])
+
+  const managerApprovedBy = (managerName && typeof managerName === 'string' && managerName !== '0')
+    ? managerName
+    : (resolvedManagerName || (leaveRequest?.modUser && leaveRequest.modUser !== 0 ? `Manager (ID: ${leaveRequest.modUser})` : "-"))
+
+  const managerApprovedOn = leaveRequest?.managerResponseOn
+    ? formatDateTime(leaveRequest.managerResponseOn)
+    : (leaveRequest?.modifiedOn ? formatDateTime(leaveRequest.modifiedOn) : "")
+
+  const rawManagerResponse: string = String(leaveRequest?.managerResponse || "").toLowerCase()
+  const managerStatus = rawManagerResponse.includes("approved")
+    ? "Approved"
+    : rawManagerResponse.includes("rejected")
+      ? "Rejected"
+      : (
+        // Fallback inference if explicit managerResponse isn't present
+        (leaveRequest?.status === "approved" || leaveRequest?.status === "pending_hr_approval" || leaveRequest?.status === "rejected_by_hr")
+          ? "Approved"
+          : leaveRequest?.status === "rejected"
+            ? "Rejected"
+            : "Pending"
+      )
+
+  const managerComment = (leaveRequest?.comments || "").trim() || (managerStatus === "Approved" ? "Approved" : managerStatus === "Rejected" ? "Rejected" : "")
+
   const mockApprovalStatus = {
     manager: {
-      status: leaveRequest?.status === "approved" || leaveRequest?.status === "pending_hr_approval" || leaveRequest?.status === "rejected_by_hr"
-        ? "Approved"
-        : leaveRequest?.status === "rejected"
-          ? "Rejected"
-          : "Pending",
-      approvedBy: "John Doe (Manager)",
-      approvedOn: leaveRequest?.status === "rejected" ? "2025-07-20" : "2025-07-20",
-      comment: leaveRequest?.status === "rejected" ? "Leave request rejected by manager." : "Approved",
+      status: managerStatus,
+      approvedBy: managerApprovedBy,
+      approvedOn: managerApprovedOn,
+      comment: managerComment,
     },
     hr: {
       status: leaveRequest?.status === "approved"

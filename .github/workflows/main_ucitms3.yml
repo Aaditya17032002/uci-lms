@@ -25,7 +25,7 @@ jobs:
         run: |
           npm ci --force
           npm run build
-          echo "Build contents:"
+          echo "✅ Build completed. Contents:"
           ls -la build
 
       - name: Upload build folder as artifact
@@ -47,8 +47,33 @@ jobs:
 
       - name: Verify downloaded build
         run: |
-          echo "Downloaded build contents:"
+          echo "📦 Downloaded build contents:"
           ls -la build
+
+      - name: Add static web config (disable npm start)
+        run: |
+          echo "🛠️ Creating web.config to serve static React app..."
+          cat > build/web.config << 'EOF'
+          <configuration>
+            <system.webServer>
+              <handlers>
+                <add name="StaticFile" path="*" verb="*" modules="StaticFileModule" resourceType="Either" requireAccess="Read" />
+              </handlers>
+              <rewrite>
+                <rules>
+                  <rule name="ReactRouter" stopProcessing="true">
+                    <match url=".*" />
+                    <conditions logicalGrouping="MatchAll">
+                      <add input="{REQUEST_FILENAME}" matchType="IsFile" negate="true" />
+                      <add input="{REQUEST_FILENAME}" matchType="IsDirectory" negate="true" />
+                    </conditions>
+                    <action type="Rewrite" url="/" />
+                  </rule>
+                </rules>
+              </rewrite>
+            </system.webServer>
+          </configuration>
+          EOF
 
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3

@@ -694,8 +694,8 @@ export function PendingApprovalPage({ isDarkMode }: PendingApprovalPageProps) {
               if (result === "approved") {
                 return prev.map(ts => ts.id === id ? { ...ts, tsstatus: "approved" } : ts)
               }
-              // rejected: remove from list
-              return prev.filter(ts => ts.id !== id)
+              // rejected: keep in list but mark as rejected
+              return prev.map(ts => ts.id === id ? { ...ts, tsstatus: "rejected" } : ts)
             })
             // also clear selection if needed
             setSelectedTimesheets(prev => prev.filter(tsId => tsId !== id))
@@ -706,14 +706,14 @@ export function PendingApprovalPage({ isDarkMode }: PendingApprovalPageProps) {
           isOpen={isLeaveModalOpen}
           onClose={() => setIsLeaveModalOpen(false)}
           leaveRequest={selectedLeave}
-          onActionComplete={(result, requestID) => {
+          onActionComplete={(result, requestID, comment) => {
             setApiLeaveData(prev => {
               const targetId = Number(requestID)
               if (result === "approved") {
-                return prev.map(l => Number(l.requestID) === targetId ? { ...l, statusLabel: "approved" } : l)
+                return prev.map(l => Number(l.requestID) === targetId ? { ...l, statusLabel: "approved", comments: comment || l.comments } : l)
               }
-              // rejected: remove from list
-              return prev.filter(l => Number(l.requestID) !== targetId)
+              // rejected: keep in list but mark as rejected, persist comment
+              return prev.map(l => Number(l.requestID) === targetId ? { ...l, statusLabel: "rejected", comments: comment || l.comments } : l)
             })
             // Toast notifications are now handled in the modal itself
           }}

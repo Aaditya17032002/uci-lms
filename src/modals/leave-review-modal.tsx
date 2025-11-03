@@ -14,14 +14,20 @@ interface LeaveReviewModalProps {
   onClose: () => void
   leaveRequest: any
   isViewOnly?: boolean
-  onActionComplete?: (result: "approved" | "rejected", requestID: number) => void
+  onActionComplete?: (result: "approved" | "rejected", requestID: number, comment?: string) => void
 }
 
 export function LeaveReviewModal({ isOpen, onClose, leaveRequest, isViewOnly = false, onActionComplete }: LeaveReviewModalProps) {
   console.log("[LeaveReviewModal] props.leaveRequest:", leaveRequest)
 
-  // Determine manager status from raw numeric status if available
+  // Determine manager status - prefer explicit statusLabel from list, fallback to numeric mapping
   const statusLabel: "Approved" | "Rejected" | "Pending" | "Cancelled" = (() => {
+    const label = (leaveRequest?.statusLabel || "").toString().toLowerCase()
+    if (label) {
+      if (label.includes("approve")) return "Approved"
+      if (label.includes("reject")) return "Rejected"
+      if (label.includes("cancel")) return "Cancelled"
+    }
     const raw = leaveRequest?.rawStatus ?? leaveRequest?.status
     if (typeof raw === 'number') {
       // 5 = Pending Manager Approval
@@ -32,11 +38,12 @@ export function LeaveReviewModal({ isOpen, onClose, leaveRequest, isViewOnly = f
       if (raw === 6) return "Approved"
       if (raw === 7) return "Rejected"
       if (raw === 9) return "Cancelled"
-      return "Pending"
+    } else if (typeof raw === 'string') {
+      const s = raw.toLowerCase()
+      if (s.includes("approve")) return "Approved"
+      if (s.includes("reject")) return "Rejected"
+      if (s.includes("cancel")) return "Cancelled"
     }
-    const s = (leaveRequest?.statusLabel || leaveRequest?.status || "").toString().toLowerCase()
-    if (s.includes("approve")) return "Approved"
-    if (s.includes("reject")) return "Rejected"
     return "Pending"
   })()
 
@@ -80,6 +87,19 @@ export function LeaveReviewModal({ isOpen, onClose, leaveRequest, isViewOnly = f
       setCurrentUserName(userId ? `User (ID: ${userId})` : "Current User")
     }
   }, [isOpen])
+
+  // Clear manager comment each time a new request is opened
+  useEffect(() => {
+    if (isOpen) {
+      // For pending: empty; for approved/rejected: show stored decision comment (read-only)
+      if (statusLabel === "Pending") {
+        setManagerComment("")
+      } else {
+        const decidedComment = (leaveRequest?.comments || "").trim() || (isApproved ? "Approved" : isRejected ? "Rejected" : "")
+        setManagerComment(decidedComment)
+      }
+    }
+  }, [isOpen, leaveRequest?.requestID])
 
   const formatDate = (iso?: string): string => {
     if (!iso) return "-"
@@ -195,7 +215,7 @@ export function LeaveReviewModal({ isOpen, onClose, leaveRequest, isViewOnly = f
             duration:3000,
             className: "border-green-500 text-green-800 dark:text-green-300 dark:border-green-600",           
           })
-          onActionComplete && onActionComplete("approved", payload.requestID)
+          onActionComplete && onActionComplete("approved", payload.requestID, managerComment || "")
         } else {
           toast({
             title: "Leave Rejected",
@@ -203,7 +223,7 @@ export function LeaveReviewModal({ isOpen, onClose, leaveRequest, isViewOnly = f
             duration:3000,
             className: "border-red-500 text-red-800 dark:text-red-300 dark:border-red-600",          
           })
-          onActionComplete && onActionComplete("rejected", payload.requestID)
+          onActionComplete && onActionComplete("rejected", payload.requestID, managerComment || "")
         }
       }, 100)
 
@@ -218,6 +238,8 @@ export function LeaveReviewModal({ isOpen, onClose, leaveRequest, isViewOnly = f
         className: "border-red-500 text-red-800 dark:text-red-300 dark:border-red-600"
       })
     } finally {
+      // ensure comment does not persist across items
+      setManagerComment("")
       setSubmitting(false)
     }
   }
@@ -300,8 +322,8 @@ export function LeaveReviewModal({ isOpen, onClose, leaveRequest, isViewOnly = f
             </div>
           </div>
 
-          {/* Manager comment input */}
-          {!isViewOnly && (
+          {/* Manager comment input - show only when pending and not view-only */}
+          {!isViewOnly && isPending && (
             <div>
               <label className="block text-xs sm:text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
                 Comment (optional)
@@ -310,7 +332,6 @@ export function LeaveReviewModal({ isOpen, onClose, leaveRequest, isViewOnly = f
                 value={managerComment}
                 onChange={(e) => setManagerComment(e.target.value)}
                 placeholder="Add a comment for your decision"
-                disabled={!isPending}
                 className="min-h-[100px] bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-600 text-gray-900 dark:text-white text-sm sm:text-base"
               />
             </div>

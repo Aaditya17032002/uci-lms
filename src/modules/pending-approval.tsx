@@ -214,6 +214,7 @@ export function PendingApprovalPage({ isDarkMode }: PendingApprovalPageProps) {
 
       // Status mapping per backend:
       // 5 = Pending Manager Approval
+      // 6 = Pending HR Approval (Manager Approved)
       // 7 = Rejected by Manager
       // 9 = Cancelled
       const isPendingStatus = (code: number) => code === 5
@@ -221,13 +222,26 @@ export function PendingApprovalPage({ isDarkMode }: PendingApprovalPageProps) {
       const isRejectedStatus = (code: number) => code === 7
       const isCancelledStatus = (code: number) => code === 9
 
+      const mapStatusToLabel = (status: unknown): "pending" | "approved" | "rejected" | "cancelled" => {
+        if (typeof status === "number") {
+          if (isPendingStatus(status)) return "pending"
+          if (isApprovedStatus(status)) return "approved"
+          if (isRejectedStatus(status)) return "rejected"
+          if (isCancelledStatus(status)) return "cancelled"
+          return "pending"
+        }
+        if (typeof status === "string") {
+          const s = status.toLowerCase()
+          if (s.includes("reject")) return "rejected"
+          if (s.includes("approve")) return "approved"
+          if (s.includes("cancel")) return "cancelled"
+          return "pending"
+        }
+        return "pending"
+      }
+
       const normalized: LeaveEntry[] = raw.map((item) => {
-        const statusLabel: "pending" | "approved" | "rejected" | "cancelled" =
-          isPendingStatus(item.status) ? "pending"
-            : isApprovedStatus(item.status) ? "approved"
-              : isRejectedStatus(item.status) ? "rejected"
-                : isCancelledStatus(item.status) ? "cancelled"
-                  : "pending"
+        const statusLabel: "pending" | "approved" | "rejected" | "cancelled" = mapStatusToLabel(item.status as unknown)
         return {
           id: item.requestID,
           requestID: item.requestID,
@@ -239,7 +253,7 @@ export function PendingApprovalPage({ isDarkMode }: PendingApprovalPageProps) {
           appliedOn: formatDate(item.requestDate),
           reason: item.reason,
           comments: item.comments,
-          rawStatus: item.status,
+          rawStatus: item.status as unknown as number,
           statusLabel,
           modUser: item.modUser,
           managerResponseOn: item.managerResponseOn,
@@ -694,16 +708,17 @@ export function PendingApprovalPage({ isDarkMode }: PendingApprovalPageProps) {
           leaveRequest={selectedLeave}
           onActionComplete={(result, requestID) => {
             setApiLeaveData(prev => {
+              const targetId = Number(requestID)
               if (result === "approved") {
-                return prev.map(l => l.requestID === requestID ? { ...l, statusLabel: "approved" } : l)
+                return prev.map(l => Number(l.requestID) === targetId ? { ...l, statusLabel: "approved" } : l)
               }
               // rejected: remove from list
-              return prev.filter(l => l.requestID !== requestID)
+              return prev.filter(l => Number(l.requestID) !== targetId)
             })
             // Toast notifications are now handled in the modal itself
           }}
         />
-
+  
         <BulkApprovalModal
           isOpen={isBulkApprovalModalOpen}
           onClose={() => setIsBulkApprovalModalOpen(false)}

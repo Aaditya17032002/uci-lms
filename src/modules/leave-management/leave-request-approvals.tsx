@@ -56,8 +56,8 @@ export function LeaveRequestApprovalsPage() {
     }
   }
 
-  useEffect(() => {
-    const fetchApprovals = async () => {
+  // reusable fetch to refresh list after actions
+  const fetchApprovals = async () => {
       try {
         console.log("[HR Approvals] Fetching (POST https://localhost:7080/api/Leave/hr-approvals) withCredentials...")
         const resp = await axios.post(
@@ -91,6 +91,17 @@ export function LeaveRequestApprovalsPage() {
           hrApprovedBy: item.hrApprovedBy ?? undefined,
           hrApprovedOn: item.hrApprovedOn ?? undefined,
           hrComment: item.hrComment ?? undefined,
+          // pass-through (optional) manager fields if provided by API
+          // These are used by HR modal to show dynamic manager approval details
+          // They won't affect table rendering
+          ...(item.managerName ? { managerName: item.managerName } : {}),
+          ...(item.approvedByName ? { approvedByName: item.approvedByName } : {}),
+          ...(item.modifiedByName ? { modifiedByName: item.modifiedByName } : {}),
+          ...(item.modUser ? { modUser: item.modUser } : {}),
+          ...(item.managerResponseOn ? { managerResponseOn: item.managerResponseOn } : {}),
+          ...(item.modifiedOn ? { modifiedOn: item.modifiedOn } : {}),
+          ...(item.comments ? { comments: item.comments } : {}),
+          ...(item.managerResponse ? { managerResponse: item.managerResponse } : {}),
         }))
         console.log("[HR Approvals] First mapped row:", mapped[0])
 
@@ -156,7 +167,9 @@ export function LeaveRequestApprovalsPage() {
           duration: 4000,
         })
       }
-    }
+  }
+
+  useEffect(() => {
     fetchApprovals()
   }, [])
 
@@ -220,6 +233,8 @@ export function LeaveRequestApprovalsPage() {
     }
     setIsReviewModalOpen(false)
     setSelectedLeaveRequest(null)
+    // ensure latest server state is reflected
+    fetchApprovals()
   }
 
   const handleReject = async (comment: string) => {
@@ -277,6 +292,8 @@ export function LeaveRequestApprovalsPage() {
     }
     setIsReviewModalOpen(false)
     setSelectedLeaveRequest(null)
+    // ensure latest server state is reflected
+    fetchApprovals()
   }
 
   const totalPages = Math.ceil(pendingRequests.length / parseInt(pageSize))

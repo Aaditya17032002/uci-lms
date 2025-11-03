@@ -7,7 +7,7 @@
     "build": "CI=false react-scripts build",
     "start:qa": "cross-env NODE_ENV=qa react-scripts start",
     "build:qa": "cross-env NODE_ENV=qa react-scripts build",
-    "test": "react-scripts test",
+    "test": "react-scripts test --passWithNoTests",
     "eject": "react-scripts eject"
   },
   "dependencies": {

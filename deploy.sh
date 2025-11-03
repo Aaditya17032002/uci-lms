@@ -4,30 +4,38 @@ set -e
  
 echo "🔵 Custom deploy script running..."
  
-# Force use of the correct npm bundled with Node v22
+# Force correct Node version path
 
-export PATH="/c/Program Files/nodejs:$PATH"
+export PATH="/opt/nodejs/22/bin:$PATH"
  
 echo "Node version: $(node -v)"
 
 echo "NPM version: $(npm -v)"
+ 
+# Verify we're using correct versions
 
+NODE_VERSION=$(node -v)
+
+if [[ ! "$NODE_VERSION" =~ ^v2[0-9] ]]; then
+
+  echo "❌ ERROR: Wrong Node version detected: $NODE_VERSION"
+
+  exit 1
+
+fi
+ 
 echo "Current directory: $(pwd)"
  
-# Clean old builds
-
-rm -rf build
+rm -rf build node_modules
  
 echo "📦 Installing dependencies..."
 
-npm install --legacy-peer-deps
+npm install --force
  
 echo "🏗️ Building React app..."
 
 npm run build
  
-# Deploy
-
 mkdir -p /home/site/wwwroot
 
 echo "🧹 Cleaning previous deployment..."

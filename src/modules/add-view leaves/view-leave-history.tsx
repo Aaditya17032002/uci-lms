@@ -110,16 +110,24 @@ const getStatusBadge = (status: string) => {
           Cancelled
         </Badge>
       )
-    case "rejected":
+    case "rejected_by_manager":
+    case "rejected by manager":
       return (
         <Badge className="bg-red-100 text-red-700 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400">
-          Rejected
+          Rejected by Manager
+        </Badge>
+      )
+    case "rejected_by_hr":
+    case "rejected by hr":
+      return (
+        <Badge className="bg-red-100 text-red-700 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400">
+          Rejected by HR
         </Badge>
       )
     default:
       return (
         <Badge className="bg-gray-100 text-gray-600 hover:bg-gray-100 dark:bg-gray-700 dark:text-gray-300">
-          Submitted
+          N/A
         </Badge>
       )
   }

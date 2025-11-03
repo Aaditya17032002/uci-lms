@@ -1,6 +1,3 @@
-# Docs: https://github.com/Azure/webapps-deploy
-# More Azure GitHub Actions: https://github.com/Azure/actions
-
 name: Build and deploy React app to Azure Web App - ucitms3
 
 on:
@@ -13,26 +10,28 @@ jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: read # Required for actions/checkout
+      contents: read
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Node.js version
+      - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
           node-version: '22.x'
 
-      - name: Install dependencies and build
+      - name: Install dependencies and build React app
         run: |
           npm ci --force
           npm run build
+          echo "Build contents:"
+          ls -la build
 
-      - name: Upload production build artifact
+      - name: Upload build folder as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: build
+          name: react-build
           path: build/
 
   deploy:
@@ -43,11 +42,17 @@ jobs:
       - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
-          name: build
+          name: react-build
+          path: build
+
+      - name: Verify downloaded build
+        run: |
+          echo "Downloaded build contents:"
+          ls -la build
 
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3
         with:
           app-name: 'ucitms3'
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_77136B92C16749EA8C5DA997F59B5A28 }}
-          package: ./build
+          package: build

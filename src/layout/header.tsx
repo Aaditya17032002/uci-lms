@@ -20,6 +20,7 @@ export function Header({ onSidebarToggle, onThemeToggle }: HeaderProps) {
   const [notifications] = useState(5) // Mock notification count
   const [isNotificationOpen, setIsNotificationOpen] = useState(false)
   const [userName, setUserName] = useState("John Doe") // Default fallback
+  const [userPhoto, setUserPhoto] = useState<string | null>(null)
 
   // Generate initials from username
   const getInitials = (name: string): string => {
@@ -31,12 +32,16 @@ export function Header({ onSidebarToggle, onThemeToggle }: HeaderProps) {
     return (words[0][0] + words[words.length - 1][0]).toUpperCase()
   }
 
-  // Load user name from localStorage on component mount
+  // Load user name/photo from sessionStorage/localStorage on component mount
   useEffect(() => {
-    const storedUserName = localStorage.getItem("userName")
+    const storedUserName = sessionStorage.getItem("userName") || localStorage.getItem("userName")
     console.log("[Header] storedUserName from localStorage:", storedUserName)
     if (storedUserName) {
       setUserName(storedUserName)
+    }
+    const storedPhoto = sessionStorage.getItem("userPhoto")
+    if (storedPhoto) {
+      setUserPhoto(storedPhoto)
     }
   }, [])
 
@@ -99,9 +104,11 @@ export function Header({ onSidebarToggle, onThemeToggle }: HeaderProps) {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="flex items-center gap-2 px-2 sm:px-3 py-2">
-                <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center">
-                  <span className="text-white font-medium text-sm">{getInitials(userName)}</span>
-                </div>
+                <img
+                  src={userPhoto || "/images/placeholder-user.jpg"}
+                  alt="profile"
+                  className="w-8 h-8 rounded-full object-cover"
+                />
                 <span
                   className={`hidden sm:inline text-sm font-medium
                  text-gray-700`}

@@ -25,7 +25,7 @@ jobs:
 
       - name: npm install, build, and test
         run: |
-          npm install
+          npm install -force
           npm run build --if-present
           npm run test --if-present
 
@@ -52,4 +52,5 @@ jobs:
           app-name: 'ucitms3'
           slot-name: 'Production'
           package: .
+
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_77136B92C16749EA8C5DA997F59B5A28 }}

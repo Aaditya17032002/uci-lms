@@ -2,10 +2,11 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState,useEffect } from "react"
 import { X, Send } from "lucide-react"
 import { Button } from "../ui/button"
 import { SelectValue } from "../ui/select"
+import { apiClient as fetchApi } from "../lib/utils"
 
 interface FeedbackModalProps {
   isOpen: boolean
@@ -24,13 +25,45 @@ export function FeedbackModal({ isOpen, onClose, isDarkMode }: FeedbackModalProp
   })
 
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [userName, setUserName] = useState<string>("")
+  const [userEmail, setUserEmail] = useState<string>("")
+
+  // Load user info from session or localStorage
+  useEffect(() => {
+    const storedUser = localStorage.getItem("userName")
+    const storedEmail = localStorage.getItem("userEmail") // optional if saved in login
+    if (storedUser) setUserName(storedUser)
+    if (storedEmail) setUserEmail(storedEmail)
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsSubmitting(true)
 
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 1000))
+    try {
+    // Prepare payload based on backend API
+    const requestDateIso = new Date().toISOString()
+    const endDateIso = formData.dateNeeded ? new Date(formData.dateNeeded).toISOString() : requestDateIso
+
+    const payload = {
+      logId: 0,
+      requestDate: requestDateIso,
+      endDate: endDateIso,
+      name: userName || "Unknown User",
+      senderEmail: userEmail || "",
+      title: formData.title,
+      description: formData.description,
+      priority: formData.priority,
+      requestType: formData.requestType,
+    } as const
+
+    console.log("Sending payload:", payload)
+    
+    const result = await fetchApi.request("/Admin/sendFeedback", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    })
+    console.log("Feedback submitted:", result)
 
     // Reset form and close modal
     setFormData({
@@ -41,12 +74,19 @@ export function FeedbackModal({ isOpen, onClose, isDarkMode }: FeedbackModalProp
       dateNeeded: "",
       category: "",
     })
-    setIsSubmitting(false)
-    onClose()
+    
 
     // Show success message (you can replace this with a toast notification)
     alert("Feedback submitted successfully!")
+    onClose();
   }
+  catch (error) {
+    console.error("Error submitting feedback:", error);
+    alert("Failed to submit feedback. Please try again later.");
+  } finally {
+    setIsSubmitting(false);
+  }
+};
 
   const handleInputChange = (field: string, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }))
@@ -96,36 +136,11 @@ export function FeedbackModal({ isOpen, onClose, isDarkMode }: FeedbackModalProp
               <option value="" disabled hidden>
     Select Request Type
   </option>
-                <option value="bug-report">Bug Report</option>
-                <option value="feature-request">Feature Request</option>
-                <option value="technical-support">Technical Support</option>
-                <option value="general-feedback">General Feedback</option>
-                <option value="training-request">Training Request</option>
-              </select>
-            </div>
-
-            {/* Category */}
-            <div className="flex-1">
-              <label className="block text-sm font-medium mb-2">
-                Category <span className="text-red-500">*</span>
-              </label>
-              <select
-                value={formData.category}
-                onChange={(e) => handleInputChange("category", e.target.value)}
-                required
-                className={`w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                  isDarkMode ? "bg-gray-700 border-gray-600 text-white" : "bg-white border-gray-300 text-gray-900"
-                }`}
-              > <option value="" disabled hidden>
-    Select Category
-  </option>
-                <option value="timesheet">Timesheet Management</option>
-                <option value="leave-management">Leave Management</option>
-                <option value="approvals">Approval Process</option>
-                <option value="reports">Reports & Analytics</option>
-                <option value="user-interface">User Interface</option>
-                <option value="performance">System Performance</option>
-                <option value="other">Other</option>
+                <option value="Defect">Bug Report</option>
+                <option value="Enhancement">Feature Request</option>
+                <option value="Query">Technical Support</option>
+                <option value="Configuration Change">General Feedback</option>
+                <option value="Other">Training Request</option>
               </select>
             </div>
           </div>
@@ -186,10 +201,10 @@ export function FeedbackModal({ isOpen, onClose, isDarkMode }: FeedbackModalProp
             ><option value="" disabled hidden>
               Select Priority
               </option>
-              <option value="low">Low - General inquiry or minor enhancement</option>
-              <option value="medium">Medium - Standard request or moderate issue</option>
-              <option value="high">High - Important feature or significant problem</option>
-              <option value="urgent">Urgent - Critical issue affecting work</option>
+              <option value="low">Low(Future Release)</option>
+              <option value="medium">Medium(3 to 5 days)</option>
+              <option value="high">High(1 to 2 days)</option>
+              <option value="urgent">Urgent (Will be addressed immediately)</option>
             </select>
           </div>
 

@@ -126,7 +126,7 @@ export function LeaveReviewModalHR({ isOpen, onClose, leaveRequest, isViewOnly =
         // setComment(last || "")
       } catch {}
     }
-  }, [isOpen])
+  }, [isOpen, leaveRequest?.requestID, leaveRequest?.id])
   const [submitting, setSubmitting] = useState<boolean>(false)
 
   const callHrAction = async (responseAction: "approved" | "rejected") => {
@@ -152,6 +152,8 @@ export function LeaveReviewModalHR({ isOpen, onClose, leaveRequest, isViewOnly =
       console.log("[HR Action] Error:", e)
     } finally {
       setSubmitting(false)
+      // ensure comment does not persist across items
+      setComment("")
       onClose()
     }
   }

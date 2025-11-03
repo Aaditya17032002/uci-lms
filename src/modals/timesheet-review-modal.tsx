@@ -216,6 +216,8 @@ export function TimesheetReviewModal({ isOpen, onClose, timesheet, isViewOnly = 
   // Fetch timesheet data when modal opens
   useEffect(() => {
     if (isOpen && timesheet?.id) {
+      // reset comment for each timesheet open
+      setComment("")
       fetchTimesheetData(timesheet.id)
     }
   }, [isOpen, timesheet?.id])
@@ -289,6 +291,8 @@ export function TimesheetReviewModal({ isOpen, onClose, timesheet, isViewOnly = 
       console.error("Approve failed", err)
       setError("Failed to approve timesheet")
     } finally {
+      // clear comment after action to avoid persistence between items
+      setComment("")
       setActionLoading(false)
     }
   }
@@ -309,6 +313,8 @@ export function TimesheetReviewModal({ isOpen, onClose, timesheet, isViewOnly = 
       console.error("Reject failed", err)
       setError("Failed to reject timesheet")
     } finally {
+      // clear comment after action to avoid persistence between items
+      setComment("")
       setActionLoading(false)
     }
   }
